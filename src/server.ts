@@ -100,7 +100,11 @@ export class Bridge {
       if (this.stopping) throw new BridgeError("BRIDGE_STOPPED", "Server is stopping");
       const id = randomUUID();
       this.workspaces.set(id, { cwd, active: new Map(), lastUsed: Date.now() });
-      return result(`Workspace ready: ${cwd}. Read the applicable instruction files.`, { workspace_id: id, ...context, pi: "0.85.1", models_for_tools: false });
+      const sections = [`Workspace ready: ${cwd}.`];
+      if (context.project_context) sections.push(context.project_context);
+      if (context.skills_prompt) sections.push(context.skills_prompt);
+      const text = sections.join("\n\n");
+      return result(text, { workspace_id: id, ...context, pi: "0.85.1", models_for_tools: false });
     } finally { this.opening--; }
   }
 

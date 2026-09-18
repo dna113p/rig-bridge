@@ -69,7 +69,11 @@ Options:
 const stateDir = resolve(values["state-dir"]!);
 const tokenFile = resolve(values["token-file"] ?? join(stateDir, "http-authorization"));
 const port = Number(values.port);
-const tunnelId = values["tunnel-id"]!;
+const tunnelId = values["tunnel-id"];
+if (!tunnelId) {
+  console.error("\x1b[31mError: CONTROL_PLANE_TUNNEL_ID is required.\x1b[0m\n");
+  process.exit(1);
+}
 const apiKey = values["api-key"];
 
 if (!apiKey) {

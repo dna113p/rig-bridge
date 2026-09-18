@@ -6,21 +6,39 @@ import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { call, delay, fixture, open, quote, stdio, untilFile } from "./helpers.ts";
 
-test("nine real MCP tools, home/project context, and no automatic extension loading", async t => {
+test("ten real MCP tools, home/project context, skills, and no automatic extension loading", async t => {
   const f = await fixture(); t.after(f.close);
   const h = await stdio(f.state); t.after(h.close);
-  assert.deepEqual((await h.client.listTools()).tools.map(tool => tool.name).sort(), ["workspace_open", "workspace_close", "read", "write", "edit", "bash", "ls", "find", "grep"].sort());
+  assert.deepEqual((await h.client.listTools()).tools.map(tool => tool.name).sort(), ["workspace_open", "workspace_close", "read", "write", "edit", "bash", "ls", "find", "grep", "skill_info"].sort());
   const home = await call(h.client, "workspace_open");
   assert.equal(home.structuredContent.cwd, homedir());
   assert.equal(home.structuredContent.models_for_tools, false);
   execFileSync("git", ["init", "-q", f.project]);
   await writeFile(join(f.project, "AGENTS.md"), "Read this project's instructions.");
+  await mkdir(join(f.project, ".agents/skills/deploy-helper"), { recursive: true });
+  await writeFile(join(f.project, ".agents/skills/deploy-helper/SKILL.md"), "---\nname: deploy-helper\ndescription: Helper skill for deployment\n---\n# Deploy Instructions\nRun the deployment step.");
   await mkdir(join(f.project, ".pi/extensions"), { recursive: true });
   await writeFile(join(f.project, ".pi/extensions/sentinel.ts"), `throw new Error('Extension must not be loaded');`);
   const opened = await call(h.client, "workspace_open", { cwd: f.project });
   assert.equal(opened.structuredContent.repository.root, f.project);
   assert.ok(opened.structuredContent.instructions.includes(join(f.project, "AGENTS.md")));
+  assert.equal(opened.structuredContent.instruction_files[0].path, join(f.project, "AGENTS.md"));
+  assert.equal(opened.structuredContent.instruction_files[0].content, "Read this project's instructions.");
+  assert.ok(opened.content[0].text.includes("<project_context>"));
+  assert.ok(opened.content[0].text.includes("Read this project's instructions."));
+  assert.ok(opened.content[0].text.includes("deploy-helper"));
   const workspace_id = opened.structuredContent.workspace_id;
+  const skillsList = await call(h.client, "skill_info", { workspace_id });
+  assert.notEqual(skillsList.isError, true);
+  assert.ok(skillsList.structuredContent.skills.some((s: { name: string }) => s.name === "deploy-helper"));
+  const skillDetail = await call(h.client, "skill_info", { workspace_id, name: "deploy-helper" });
+  assert.notEqual(skillDetail.isError, true);
+  assert.equal(skillDetail.structuredContent.name, "deploy-helper");
+  assert.equal(skillDetail.structuredContent.instructions, "# Deploy Instructions\nRun the deployment step.");
+  assert.match(skillDetail.content[0].text, /Deploy Instructions/);
+  const missingSkill = await call(h.client, "skill_info", { workspace_id, name: "nonexistent-skill" });
+  assert.equal(missingSkill.isError, true);
+  assert.equal(missingSkill.structuredContent.code, "SKILL_NOT_FOUND");
   for (const [name, args] of [
     ["ls", {}], ["find", { pattern: "AGENTS.md" }], ["grep", { pattern: "instructions", path: "AGENTS.md" }],
   ] as const) {

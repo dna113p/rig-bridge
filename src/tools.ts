@@ -3,6 +3,7 @@ import { join } from "node:path";
 import * as pi from "@earendil-works/pi-coding-agent";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { BridgeError, hash, result } from "./common.ts";
+import { loadWorkspaceSkills } from "./context.ts";
 import { atomicReplace, canonicalPath, fileAccess, requireRevision, resolveInput, revision, withPathLock } from "./files.ts";
 
 // Arguments have already passed the MCP catalog's JSON Schema validation.
@@ -61,6 +62,46 @@ export async function executeTool(name: string, args: Record<string, any>, cwd: 
       const code = /timed out after/.test(message) ? "COMMAND_TIMEOUT" : /Command aborted/.test(message) ? "COMMAND_CANCELLED" : "COMMAND_FAILED";
       return result(message, { code, exit_code: exitCode, elapsed_ms: Date.now() - started, effects_may_have_occurred: true, details: outputDetails ?? null }, true);
     }
+  }
+  if (name === "skill_info") {
+    const skills = loadWorkspaceSkills(cwd);
+    if (!input.name) {
+      const list = skills.map(s => ({
+        name: s.name,
+        description: s.description,
+        path: s.filePath,
+        directory: s.baseDir,
+        disable_model_invocation: s.disableModelInvocation,
+      }));
+      if (list.length === 0) {
+        return result("No skills available in this workspace or user environment.", { skills: [] });
+      }
+      const text = `Available skills (${list.length}):\n\n` +
+        list.map(s => `- **${s.name}** (${s.path})\n  ${s.description}`).join("\n\n") +
+        `\n\nCall skill_info with a skill name to view its complete instructions.`;
+      return result(text, { skills: list });
+    }
+    const target = String(input.name).trim().toLowerCase();
+    const match = skills.find(s => s.name.toLowerCase() === target);
+    if (!match) {
+      const available = skills.map(s => s.name);
+      throw new BridgeError("SKILL_NOT_FOUND", available.length
+        ? `Skill '${input.name}' not found. Available skills: ${available.join(", ")}`
+        : `Skill '${input.name}' not found. No skills are installed.`);
+    }
+    const raw = await readFile(match.filePath, "utf-8");
+    const frontmatter = pi.parseFrontmatter(raw);
+    const instructions = pi.stripFrontmatter(raw).trim();
+    const text = `# Skill: ${match.name}\n\n${match.description}\n\nLocation: ${match.filePath}\nDirectory: ${match.baseDir}\n\n## Instructions\n\n${instructions}`;
+    return result(text, {
+      name: match.name,
+      description: match.description,
+      path: match.filePath,
+      directory: match.baseDir,
+      disable_model_invocation: match.disableModelInvocation,
+      frontmatter,
+      instructions,
+    });
   }
   const factories = { ls: pi.createLsTool, find: pi.createFindTool, grep: pi.createGrepTool };
   if (!(name in factories)) throw new BridgeError("UNKNOWN_TOOL", `Unknown tool: ${name}`);

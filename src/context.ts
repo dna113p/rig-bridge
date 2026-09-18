@@ -1,8 +1,9 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { readdir, realpath, stat } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { homedir, hostname, platform, arch, userInfo } from "node:os";
+import * as pi from "@earendil-works/pi-coding-agent";
 
 const exec = promisify(execFile);
 async function git(cwd: string, args: string[]) {
@@ -11,28 +12,111 @@ async function git(cwd: string, args: string[]) {
 }
 async function exists(path: string) { try { return (await stat(path)).isFile(); } catch { return false; } }
 
-export async function orientation(cwd: string) {
-  const instructions: string[] = [];
+const MAX_INSTRUCTION_BYTES = 64 * 1024;
+
+export interface InstructionFile {
+  path: string;
+  content: string;
+}
+
+export interface SkillSummary {
+  name: string;
+  description: string;
+  path: string;
+  directory: string;
+  disable_model_invocation: boolean;
+}
+
+export async function loadContextFiles(cwd: string): Promise<InstructionFile[]> {
+  const files: InstructionFile[] = [];
+  const seen = new Set<string>();
+
+  try {
+    const loaded = pi.loadProjectContextFiles({ cwd, agentDir: pi.getAgentDir() });
+    for (const f of loaded) {
+      if (!seen.has(f.path)) {
+        let content = f.content;
+        if (content.length > MAX_INSTRUCTION_BYTES) {
+          content = content.slice(0, MAX_INSTRUCTION_BYTES) + "\n\n[... Truncated: instruction file exceeds 64 KiB. Use read tool for full content ...]";
+        }
+        files.push({ path: f.path, content });
+        seen.add(f.path);
+      }
+    }
+  } catch { /* Fallback if project context files cannot be read */ }
+
+  const supplementalNames = ["CONTEXT.md"];
+  const supplementalFiles: InstructionFile[] = [];
   let parent = cwd;
   while (true) {
-    for (const name of ["AGENTS.md", "CLAUDE.md", "CONTEXT.md"]) {
+    for (const name of supplementalNames) {
       const path = join(parent, name);
-      if (await exists(path)) instructions.push(path);
+      if (!seen.has(path) && await exists(path)) {
+        try {
+          let content = (await readFile(path, "utf-8")).trim();
+          if (content.length > MAX_INSTRUCTION_BYTES) {
+            content = content.slice(0, MAX_INSTRUCTION_BYTES) + "\n\n[... Truncated: instruction file exceeds 64 KiB. Use read tool for full content ...]";
+          }
+          supplementalFiles.unshift({ path, content });
+          seen.add(path);
+        } catch {}
+      }
     }
     if (dirname(parent) === parent) break;
     parent = dirname(parent);
   }
-  const skills: string[] = [];
-  for (const base of [...new Set([join(homedir(), ".agents/skills"), join(homedir(), ".pi/agent/skills"), join(cwd, ".agents/skills"), join(cwd, ".pi/skills")])]) {
-    try {
-      for (const entry of (await readdir(base)).sort()) {
-        const path = join(base, entry, "SKILL.md");
-        if (await exists(path)) skills.push(path);
-        if (skills.length >= 100) break;
-      }
-    } catch { /* A missing skill directory is ordinary. */ }
-    if (skills.length >= 100) break;
+  files.push(...supplementalFiles);
+  return files;
+}
+
+export function formatProjectContext(files: InstructionFile[]): string {
+  if (files.length === 0) return "";
+  let out = "<project_context>\n\nProject-specific instructions and guidelines:\n\n";
+  for (const file of files) {
+    out += `<project_instructions path="${file.path}">\n${file.content}\n</project_instructions>\n\n`;
   }
+  out += "</project_context>";
+  return out.trim();
+}
+
+export function loadWorkspaceSkills(cwd: string) {
+  try {
+    const result = pi.loadSkills({
+      cwd,
+      agentDir: pi.getAgentDir(),
+      skillPaths: [
+        join(homedir(), ".agents/skills"),
+        join(cwd, ".agents/skills"),
+      ],
+      includeDefaults: true,
+    });
+    return result.skills;
+  } catch {
+    return [];
+  }
+}
+
+export function formatSkillsPrompt(skills: ReturnType<typeof loadWorkspaceSkills>): string {
+  try {
+    return pi.formatSkillsForPrompt(skills, "read").trim();
+  } catch {
+    return "";
+  }
+}
+
+export async function orientation(cwd: string) {
+  const instructionFiles = await loadContextFiles(cwd);
+  const instructions = instructionFiles.map(f => f.path);
+  const allSkills = loadWorkspaceSkills(cwd);
+  const skills = allSkills.slice(0, 100).map(s => s.filePath);
+  const skillDefinitions = allSkills.slice(0, 100).map(s => ({
+    name: s.name,
+    description: s.description,
+    path: s.filePath,
+    directory: s.baseDir,
+    disable_model_invocation: s.disableModelInvocation,
+  }));
+
   const root = await git(cwd, ["rev-parse", "--show-toplevel"]);
   const status = root === null ? null : await git(cwd, ["status", "--porcelain", "--untracked-files=normal"]);
   const repo = root === null ? null : {
@@ -41,7 +125,10 @@ export async function orientation(cwd: string) {
   };
   return { cwd, hostname: hostname(), home: homedir(), account: userInfo().username, uid: process.getuid?.(),
     os: platform(), arch: arch(), shell: process.env.SHELL ?? "/bin/bash", repository: repo,
-    instructions, skills, skills_truncated: skills.length >= 100,
+    instructions, instruction_files: instructionFiles,
+    skills, skill_definitions: skillDefinitions, skills_truncated: allSkills.length >= 100,
+    project_context: formatProjectContext(instructionFiles),
+    skills_prompt: formatSkillsPrompt(allSkills),
     access: { profile: "account-administration", cwd_is_sandbox: false, elevation: "Use existing sudo -n or configured host mechanisms. Authentication is never automatically supplied." },
-    context_note: "Read the relevant instruction and skill files with read. Context and reasoning stay in the calling assistant." };
+    context_note: "Project instructions are inlined above. Use read or skill_info to inspect skills and specific files. Context and reasoning stay in the calling assistant." };
 }

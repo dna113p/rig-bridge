@@ -13,7 +13,7 @@ function tool(name: string, description: string, properties: Record<string, obje
 }
 
 export const catalog: Tool[] = [
-  tool("workspace_open", "Open a local working directory and return a workspace_id, account, Git state, and instruction paths. Omit cwd for home. This is directory routing, not a sandbox; absolute and parent paths remain usable.", { cwd: string }, []),
+  tool("workspace_open", "Open a local working directory and return a workspace_id, account, Git state, inlined project instructions, and available skills. Omit cwd for home. This is directory routing, not a sandbox; absolute and parent paths remain usable.", { cwd: string }, []),
   { ...tool("workspace_close", "Close this workspace and cancel its active calls. Does not undo changes or stop separately supervised jobs. Repeating close is harmless.", workspace, ["workspace_id"]), annotations: { ...readonly, idempotentHint: true } },
   tool("read", "Read actual file content using Pi. Returns a file revision for subsequent edit/write preconditions. Use offset/limit for more context.", { ...workspace, path, offset: { type: "integer", minimum: 1 }, limit: { type: "integer", minimum: 1, maximum: 2000 } }, ["workspace_id", "path"]),
   tool("ls", "List directory contents using Pi.", { ...workspace, path, limit: { type: "integer", minimum: 1, maximum: 2000 } }, ["workspace_id"]),
@@ -22,6 +22,7 @@ export const catalog: Tool[] = [
   tool("write", "Create or replace a file using Pi. expected_revision must be the last read revision, or 'missing' to create a new file. Returns its new revision.", { ...keyed, path, content: { type: "string", maxLength: 2_000_000 }, expected_revision: string }, ["workspace_id", "request_key", "path", "content", "expected_revision"], true),
   tool("edit", "Precisely edit a file using Pi's real edit implementation. All oldText entries match the original file. Read first and provide expected_revision; returns the actual diff.", { ...keyed, path, expected_revision: string, edits: { type: "array", minItems: 1, maxItems: 100, items: { type: "object", properties: { oldText: string, newText: { type: "string" } }, required: ["oldText", "newText"], additionalProperties: false } } }, ["workspace_id", "request_key", "path", "expected_revision", "edits"], true),
   tool("bash", "Run a real command on this workspace's computer using Pi, without another model. Full account access; sudo -n uses existing elevation. cd affects this command only. On timeout, cancellation, or lost connection inspect effects before retrying.", { ...keyed, command: { ...string, maxLength: 200_000 }, timeout: { type: "number", minimum: 1, maximum: 3600 } }, ["workspace_id", "request_key", "command"], true),
+  tool("skill_info", "Inspect available Pi skills or get the full instructions and metadata for a specific skill.", { ...workspace, name: { ...string, description: "Name of the skill to inspect. Omit to list all available skills." } }, ["workspace_id"]),
 ];
 
 const ajv = new Ajv({ allErrors: true });

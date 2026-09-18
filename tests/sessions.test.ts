@@ -36,7 +36,7 @@ test("HTTP session churn reclaims idle sessions without losing workspaces or ret
     const session = await initialize(server);
     const response = await request(server, session, "tools/list");
     assert.equal(response.status, 200);
-    assert.equal((await response.json()).result.tools.length, 9);
+    assert.equal((await response.json()).result.tools.length, 10);
   }
   const expired = await request(server, oldSession, "tools/list");
   assert.equal(expired.status, 404);

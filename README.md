@@ -46,11 +46,11 @@ For a client that launches a local stdio MCP server, use the **absolute Node exe
 
 Stdio uses the local client's process access. Use HTTP when multiple clients should share one server. This checkout runs TypeScript directly under Node 24; global npm installation is not an advertised installation path.
 
-## Nine tools
+## Ten tools
 
 | Tool | Purpose |
 | --- | --- |
-| `workspace_open` | Open a directory; omit `cwd` for home. Returns a workspace ID, account, Git state, and instruction/skill paths. |
+| `workspace_open` | Open a directory; omit `cwd` for home. Returns a workspace ID, account, Git state, inlined project instructions (`AGENTS.md`), and available skill definitions. |
 | `workspace_close` | Close the workspace and cancel its active calls. Repeating close is harmless. |
 | `read` | Read text or supported images through Pi. Returns a file revision. |
 | `ls` | List directory contents. |
@@ -59,10 +59,11 @@ Stdio uses the local client's process access. Use HTTP when multiple clients sho
 | `write` | Create or replace a file. |
 | `edit` | Apply Pi's targeted text replacements and return its diff. |
 | `bash` | Run a command and return output, exit status, and truncation details. |
+| `skill_info` | Inspect available Pi skills or get the full instructions and metadata for a specific skill. |
 
 Text results are available in both MCP `content` and `structuredContent.output`, alongside structured metadata such as revisions and exit codes. Clients consuming only structured results can read file contents, search matches, command output, and error messages from `output`. Pi's truncation notices and output-file references are preserved. Images remain native MCP image blocks in `content`; their base64 data is not duplicated into structured results.
 
-Try: “Open my home directory, read the applicable instructions, and show me my projects.” Then open a project's directory and retain its `workspace_id` for subsequent calls. Context paths are references for the assistant to read; opening a workspace does not execute project instructions or load installed Pi extensions.
+When an assistant opens a workspace via `workspace_open`, the bridge automatically discovers and inlines relevant project context (`AGENTS.md`, `CLAUDE.md`, etc.) and formats an `<available_skills>` catalog into the initial response. Assistants can query `skill_info` with a skill's name to view its complete prompt instructions, parameters, and frontmatter. Opening a workspace does not automatically execute project instructions or run arbitrary extensions.
 
 `cwd` is fixed for the lifetime of a workspace. Relative paths resolve there; absolute paths, `~/`, and `../` can read or modify other locations. Shell commands have the account's normal access, including existing noninteractive elevation. There is no directory allowlist or filesystem sandbox. A shell `cd` affects that command only. The server never changes its process-wide working directory.
 
