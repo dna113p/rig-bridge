@@ -1,0 +1,28 @@
+{
+  "name": "pi-tools-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "start": "node src/cli.ts",
+    "serve": "node src/cli.ts serve",
+    "install:service": "node scripts/install-service.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test tests/*.test.ts",
+    "test:tunnel": "node --test tests/tunnel.integration.ts",
+    "check": "npm run typecheck && npm test"
+  },
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "0.85.1",
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "ajv": "8.20.0"
+  },
+  "devDependencies": {
+    "@types/node": "24.0.0",
+    "typescript": "5.9.3"
+  },
+  "description": "A small MCP server exposing Pi tools with local workspace routing."
+}
