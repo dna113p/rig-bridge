@@ -68,6 +68,8 @@ Try: “Open my home directory, read the applicable instructions, and show me my
 
 Workspaces are in-memory directory records, with at most 64 open at once. They survive HTTP reconnection and transport-session closure. They expire on explicit close or server restart. A workspace ID is a routing handle, not a user or conversation identity. All authenticated clients share the same owner's access. Close unused workspaces; restarting the server clears them all.
 
+HTTP protocol sessions are separate from workspaces. The server keeps at most 64, reclaiming the least recently used idle session when a new connection needs room. Active requests remain protected, including commands whose HTTP caller disconnected; an idle notification stream does not reserve a slot. Clients receiving HTTP 404 for an expired session must initialize again and can continue using their workspace IDs. If all sessions are busy, new connections receive HTTP 503 until a request finishes.
+
 ## Editing and retries
 
 Read before editing. `write` and `edit` require the returned `revision` as `expected_revision`, or `"missing"` to create a file. Pi 0.85.1's edit input is `edits: [{oldText, newText}]`, with all replacements matched against the original file.

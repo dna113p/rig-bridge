@@ -34,6 +34,14 @@ test("two clients through tunnel-client HTTP proxy keep independent project dire
   assert.equal(file.structuredContent.output, "tunnel file output\n");
   assert.equal(file.content[0].text, file.structuredContent.output);
   assert.match((await call(b, "ls", { workspace_id })).structuredContent.output, /output.txt/);
+  await a.close(); await b.close();
+  // Match remote callers that create a session for each tool invocation and
+  // disconnect without DELETE. This must not exhaust the 64-session pool.
+  for (let i = 0; i < 80; i++) {
+    const client = await httpClient(url);
+    try { assert.match((await call(client, "ls", { workspace_id })).structuredContent.output, /output.txt/); }
+    finally { await client.close(); }
+  }
   proxy.kill("SIGTERM"); await exited;
   const direct = await httpClient(server.url, server.authorization); t.after(() => direct.close());
   assert.equal((await call(direct, "read", { workspace_id, path: "ready-b" })).structuredContent.cwd, f.other);

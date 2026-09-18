@@ -41,20 +41,40 @@ export async function serveHttp(bridge: Bridge, options: { port: number; tokenFi
     }
     const id = req.headers["mcp-session-id"];
     let session = typeof id === "string" ? sessions.get(id) : undefined;
+    let initializing = false;
     if (!session && !id && req.method === "POST" && isInitializeRequest(body)) {
-      if (sessions.size >= 64) { reject(res, 503, "MCP session limit reached"); return; }
+      // Some callers initialize for each tool call and never send DELETE.
+      if (sessions.size >= 64) {
+        const idle = [...sessions.entries()].filter(([, value]) => !value.active)
+          .sort(([, a], [, b]) => a.lastUsed - b.lastUsed)[0];
+        if (!idle) { reject(res, 503, "All MCP sessions are busy; retry after an active request completes"); return; }
+        sessions.delete(idle[0]);
+        void idle[1].server.close();
+      }
+      const sessionId = randomUUID();
       const server = bridge.createServer();
-      const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: randomUUID, enableJsonResponse: true,
-        onsessioninitialized: sessionId => { sessions.set(sessionId, session!); } });
+      const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: () => sessionId, enableJsonResponse: true });
       session = { transport, server, lastUsed: Date.now(), active: 0 };
-      server.onclose = () => { if (transport.sessionId) sessions.delete(transport.sessionId); };
-      await server.connect(transport);
+      server.onclose = () => { sessions.delete(sessionId); };
+      // Reserve before yielding so simultaneous initializations respect the limit.
+      sessions.set(sessionId, session);
+      initializing = true;
     }
     if (!session) { reject(res, id ? 404 : 400, id ? "MCP session expired; initialize again. Workspace handles remain valid while this service runs." : "Initialize an MCP session first"); return; }
     const current = session;
-    current.lastUsed = Date.now(); current.active++;
-    res.once("close", () => { current.active--; current.lastUsed = Date.now(); });
-    await current.transport.handleRequest(req, res, body);
+    // A listening GET is idle. A JSON POST remains active until its handler
+    // finishes, even if the caller drops the socket while a command is running.
+    const active = req.method !== "GET";
+    current.lastUsed = Date.now();
+    if (active) current.active++;
+    try {
+      if (initializing) await current.server.connect(current.transport);
+      await current.transport.handleRequest(req, res, body);
+    } finally {
+      if (active) current.active--;
+      current.lastUsed = Date.now();
+      if (initializing && !current.transport.sessionId) await current.server.close();
+    }
   };
   const http = createServer((req, res) => { void handle(req, res).catch(() => {
     if (!res.headersSent) reject(res, 500, "HTTP MCP request failed"); else res.destroy();

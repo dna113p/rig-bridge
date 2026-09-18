@@ -32,7 +32,7 @@ export class Bridge {
   }
 
   createServer() {
-    const server = new Server({ name: "pi-tools-mcp", version: "0.1.1" }, {
+    const server = new Server({ name: "pi-tools-mcp", version: "0.1.2" }, {
       capabilities: { tools: {} },
       instructions: "Keep reasoning and context in the calling assistant. Open a workspace for each project, omitting cwd for the account home. Save its workspace_id and read returned instruction/skill files before working. All seven execution tools use Pi directly without an agent/model session. Workspaces only select a working directory: absolute paths and ../ are allowed for reads, writes, and commands under normal account permissions. Multiple conversations can use separate workspaces concurrently; files are shared. read returns the revision required by write/edit; use 'missing' when creating a file. Every write/edit/bash needs a request_key unique within its workspace. Reuse it only with identical arguments to retrieve a previous result or durable receipt, even after restart/closure. Never blindly rerun an uncertain operation with a new key. Close unused workspaces to cancel their active calls. HTTP reconnection preserves workspace handles, but a server restart requires opening new ones. Shell stdin is closed; cd affects only that command. Authentication and elevation use existing local mechanisms.",
     });
