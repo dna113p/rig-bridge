@@ -101,6 +101,29 @@ systemctl --user stop rig-bridge.service
 
 Without `--start`, the installer writes and validates the unit without enabling or starting it. `--print` prints the unit without installing it. It captures this checkout's absolute path, Node executable, and current PATH; rerun after moving the checkout or changing Node. The installer does not configure a tunnel or enable user lingering. Boot/login behavior follows the user's existing systemd configuration. Other platforms can launch the Node command with their preferred supervisor.
 
+## ChatGPT / OpenAI Secure MCP Tunnel
+
+To connect ChatGPT to your local MCP tools using OpenAI's Secure MCP Tunnel (e.g. `tunnel_your_id_here`):
+
+1. Set your tunnel runtime key (from OpenAI Platform > Tunnels) in `.env` or your shell:
+   ```sh
+   cp .env.example .env
+   # Edit .env and set CONTROL_PLANE_API_KEY=...
+   ```
+2. Run the tunnel (auto-downloads `tunnel-client` if not found):
+   ```sh
+   npm run tunnel
+   ```
+   Or specify options:
+   ```sh
+   npm run tunnel -- --tunnel-id tunnel_your_id_here --api-key <key>
+   ```
+3. To run as a background service alongside `pi-tools-mcp.service` in Linux / WSL systemd:
+   ```sh
+   npm run install:tunnel-service -- --start
+   systemctl --user status pi-tools-tunnel.service
+   ```
+
 ## Development and verification
 
 ```sh
