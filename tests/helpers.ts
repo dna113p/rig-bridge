@@ -65,6 +65,8 @@ export async function concurrentProjects(a: Client, b: Client, project: string, 
   for (const output of outputs) assert.equal(output.structuredContent.exit_code, 0, JSON.stringify(output));
   assert.equal(outputs[0].content[0].text.trim(), project);
   assert.equal(outputs[1].content[0].text.trim(), other);
+  assert.equal(outputs[0].structuredContent.output.trim(), project);
+  assert.equal(outputs[1].structuredContent.output.trim(), other);
   await call(a, "workspace_close", { workspace_id: wa });
   assert.equal((await call(b, "bash", { workspace_id: wb, request_key: "still-open", command: "pwd" })).content[0].text.trim(), other);
   return wb;

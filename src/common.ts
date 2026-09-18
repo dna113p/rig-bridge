@@ -10,6 +10,12 @@ export function result(text: string, data: Record<string, unknown> = {}, isError
   return { content: [{ type: "text", text }], structuredContent: data, ...(isError ? { isError: true } : {}) };
 }
 
+/** Keep text available to callers that consume structured results alone. */
+export function withOutput(value: CallToolResult): CallToolResult {
+  const output = value.content.filter(block => block.type === "text").map(block => block.text).join("\n");
+  return { ...value, structuredContent: { ...value.structuredContent, output } };
+}
+
 export function failure(error: unknown): CallToolResult {
   const code = error instanceof BridgeError ? error.code : "EXECUTION_FAILED";
   const message = error instanceof Error ? error.message : String(error);

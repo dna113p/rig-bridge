@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { spawn } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { call, concurrentProjects, delay, fixture, http, httpClient } from "./helpers.ts";
 
@@ -29,6 +29,11 @@ test("two clients through tunnel-client HTTP proxy keep independent project dire
   const a = await httpClient(url), b = await httpClient(url);
   t.after(() => a.close()); t.after(() => b.close());
   const workspace_id = await concurrentProjects(a, b, f.project, f.other);
+  await writeFile(join(f.other, "output.txt"), "tunnel file output\n");
+  const file = await call(b, "read", { workspace_id, path: "output.txt" });
+  assert.equal(file.structuredContent.output, "tunnel file output\n");
+  assert.equal(file.content[0].text, file.structuredContent.output);
+  assert.match((await call(b, "ls", { workspace_id })).structuredContent.output, /output.txt/);
   proxy.kill("SIGTERM"); await exited;
   const direct = await httpClient(server.url, server.authorization); t.after(() => direct.close());
   assert.equal((await call(direct, "read", { workspace_id, path: "ready-b" })).structuredContent.cwd, f.other);

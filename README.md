@@ -60,6 +60,8 @@ Stdio uses the local client's process access. Use HTTP when multiple clients sho
 | `edit` | Apply Pi's targeted text replacements and return its diff. |
 | `bash` | Run a command and return output, exit status, and truncation details. |
 
+Text results are available in both MCP `content` and `structuredContent.output`, alongside structured metadata such as revisions and exit codes. Clients consuming only structured results can read file contents, search matches, command output, and error messages from `output`. Pi's truncation notices and output-file references are preserved. Images remain native MCP image blocks in `content`; their base64 data is not duplicated into structured results.
+
 Try: “Open my home directory, read the applicable instructions, and show me my projects.” Then open a project's directory and retain its `workspace_id` for subsequent calls. Context paths are references for the assistant to read; opening a workspace does not execute project instructions or load installed Pi extensions.
 
 `cwd` is fixed for the lifetime of a workspace. Relative paths resolve there; absolute paths, `~/`, and `../` can read or modify other locations. Shell commands have the account's normal access, including existing noninteractive elevation. There is no directory allowlist or filesystem sandbox. A shell `cd` affects that command only. The server never changes its process-wide working directory.
