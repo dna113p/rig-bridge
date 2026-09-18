@@ -118,10 +118,10 @@ To connect ChatGPT to your local MCP tools using OpenAI's Secure MCP Tunnel (e.g
    ```sh
    npm run tunnel -- --tunnel-id tunnel_your_id_here --api-key <key>
    ```
-3. To run as a background service alongside `pi-tools-mcp.service` in Linux / WSL systemd:
+3. To run as a background service alongside `rig-bridge.service` in Linux / WSL systemd:
    ```sh
    npm run install:tunnel-service -- --start
-   systemctl --user status pi-tools-tunnel.service
+   systemctl --user status rig-bridge-tunnel.service
    ```
 
 ## Development and verification

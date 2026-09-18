@@ -12,22 +12,23 @@ if (process.platform !== "linux") throw new Error("This optional installer requi
 
 const home = homedir();
 const directory = join(home, ".config/systemd/user");
-const path = join(directory, "pi-tools-tunnel.service");
-const marker = "# Managed by pi-tools-mcp\n";
+const path = join(directory, "rig-bridge-tunnel.service");
+const marker = "# Managed by rig-bridge\n";
 const quote = (value: string) => `"${value.replaceAll("\\", "\\\\").replaceAll('"', '\\"').replaceAll("%", "%%").replaceAll("$", "$$")}"`;
 const entry = fileURLToPath(new URL("./run-tunnel.ts", import.meta.url));
 const projectDir = fileURLToPath(new URL("..", import.meta.url));
 const searchPath = process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin";
 
 const unit = `${marker}[Unit]
-Description=OpenAI MCP Tunnel for Pi Tools
-After=network-online.target pi-tools-mcp.service
-Wants=pi-tools-mcp.service
+Description=OpenAI MCP Tunnel for Rig Bridge
+After=network-online.target rig-bridge.service
+Wants=rig-bridge.service
 
 [Service]
 Type=simple
 WorkingDirectory=%h
 Environment=${quote(`PATH=${searchPath}`)}
+EnvironmentFile=-${join(home, ".config/rig-bridge/tunnel.env")}
 EnvironmentFile=-${join(home, ".config/pi-tools-mcp/tunnel.env")}
 EnvironmentFile=-${join(projectDir, ".env")}
 ExecStart=${quote(process.execPath)} ${quote(entry)}
@@ -52,6 +53,6 @@ if (values.print) {
   const run = (command: string, args: string[]) => execFileSync(command, args, { stdio: "inherit" });
   run("systemd-analyze", ["--user", "verify", path]);
   run("systemctl", ["--user", "daemon-reload"]);
-  if (values.start) run("systemctl", ["--user", "enable", "--now", "pi-tools-tunnel.service"]);
-  console.log(`Installed ${path}\nStart:  systemctl --user enable --now pi-tools-tunnel.service\nStatus: systemctl --user status pi-tools-tunnel.service\nStop:   systemctl --user stop pi-tools-tunnel.service`);
+  if (values.start) run("systemctl", ["--user", "enable", "--now", "rig-bridge-tunnel.service"]);
+  console.log(`Installed ${path}\nStart:  systemctl --user enable --now rig-bridge-tunnel.service\nStatus: systemctl --user status rig-bridge-tunnel.service\nStop:   systemctl --user stop rig-bridge-tunnel.service`);
 }

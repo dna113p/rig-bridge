@@ -21,6 +21,7 @@
     "serve": "node src/cli.ts serve",
     "tunnel": "node scripts/run-tunnel.ts",
     "install:service": "node scripts/install-service.ts",
+    "install:tunnel": "node scripts/install-tunnel-service.ts",
     "install:tunnel-service": "node scripts/install-tunnel-service.ts",
     "typecheck": "tsc --noEmit",
     "test": "node --test tests/*.test.ts",

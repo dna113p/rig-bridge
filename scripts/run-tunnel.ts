@@ -12,12 +12,21 @@ import { randomBytes } from "node:crypto";
 const projectDir = fileURLToPath(new URL("..", import.meta.url));
 const envPaths = [
   join(projectDir, ".env"),
+  join(homedir(), ".config/rig-bridge/tunnel.env"),
   join(homedir(), ".config/pi-tools-mcp/tunnel.env"),
 ];
 for (const p of envPaths) {
   if (existsSync(p) && typeof process.loadEnvFile === "function") {
     try { process.loadEnvFile(p); } catch {}
   }
+}
+
+function defaultStateDir() {
+  const base = process.env.XDG_STATE_HOME ?? join(homedir(), ".local/state");
+  const preferred = join(base, "rig-bridge");
+  const legacy = join(base, "pi-tools-mcp");
+  try { if (!existsSync(preferred) && existsSync(legacy)) return legacy; } catch {}
+  return preferred;
 }
 
 const { values } = parseArgs({
@@ -34,7 +43,7 @@ const { values } = parseArgs({
     port: { type: "string", default: process.env.MCP_PORT ?? "8767" },
     "state-dir": {
       type: "string",
-      default: process.env.XDG_STATE_HOME ?? join(homedir(), ".local/state/pi-tools-mcp"),
+      default: defaultStateDir(),
     },
     "token-file": { type: "string" },
     bin: { type: "string", default: process.env.TUNNEL_CLIENT },
@@ -44,12 +53,12 @@ const { values } = parseArgs({
 if (values.help) {
   console.log(`Usage: npm run tunnel -- [options]
 
-Runs the OpenAI tunnel-client bridge to connect ChatGPT to pi-tools-mcp.
+Runs the OpenAI tunnel-client bridge to connect ChatGPT to rig-bridge.
 
 Options:
   --tunnel-id ID    OpenAI Tunnel ID (default: ${values["tunnel-id"]})
   --api-key KEY     OpenAI Control Plane API Key (or CONTROL_PLANE_API_KEY env)
-  --port PORT       pi-tools-mcp port (default: 8767)
+  --port PORT       rig-bridge port (default: 8767)
   --state-dir PATH  Directory storing state and http-authorization
   --token-file PATH Path to http-authorization token file
   --bin PATH        Path to tunnel-client binary
@@ -129,16 +138,16 @@ async function findOrDownloadBinary(customPath?: string): Promise<string> {
 
 const tunnelBinary = await findOrDownloadBinary(values.bin);
 
-// 3. Quick check if pi-tools-mcp is reachable
+// 3. Quick check if rig-bridge is reachable
 try {
   const res = await fetch(`http://127.0.0.1:${port}/healthz`, { signal: AbortSignal.timeout(1500) });
   if (!res.ok) console.warn(`\x1b[33mWarning: http://127.0.0.1:${port}/healthz returned status ${res.status}\x1b[0m`);
 } catch {
-  console.warn(`\x1b[33mNotice: pi-tools-mcp is not currently reachable at http://127.0.0.1:${port}/mcp
+  console.warn(`\x1b[33mNotice: rig-bridge is not currently reachable at http://127.0.0.1:${port}/mcp
 Make sure to start it with:
   npm run serve
 or as a systemd service:
-  systemctl --user start pi-tools-mcp.service\x1b[0m\n`);
+  systemctl --user start rig-bridge.service\x1b[0m\n`);
 }
 
 // 4. Launch tunnel-client
