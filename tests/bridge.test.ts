@@ -4,7 +4,7 @@ import { chmod, lstat, mkdir, readFile, stat, symlink, writeFile } from "node:fs
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
-import { call, fixture, open, quote, stdio, untilFile } from "./helpers.ts";
+import { call, delay, fixture, open, quote, stdio, untilFile } from "./helpers.ts";
 
 test("nine real MCP tools, home/project context, and no automatic extension loading", async t => {
   const f = await fixture(); t.after(f.close);
@@ -137,3 +137,43 @@ test("durable retry receipts survive restart and a real server crash without rep
   const next = await open(h.client, f.other);
   assert.equal((await call(h.client, "bash", { workspace_id: next, request_key: "done", command: `test -f ${quote(join(f.project, "done.txt"))}` })).structuredContent.exit_code, 0);
 });
+
+test("workspace limit reclaims least recently used idle workspace while preserving active commands", async t => {
+  const f = await fixture(); t.after(f.close);
+  const h = await stdio(f.state); t.after(h.close);
+  const workspaces: string[] = [];
+  for (let i = 0; i < 64; i++) workspaces.push(await open(h.client, f.project));
+
+  const oldest = workspaces[0];
+  const secondOldest = workspaces[1];
+
+  // Refresh secondOldest's lastUsed timestamp so it is newer than workspaces[2].
+  await delay(10);
+  assert.equal((await call(h.client, "ls", { workspace_id: secondOldest })).isError, undefined);
+
+  // Opening the 65th workspace reclaims the oldest idle workspace.
+  const w65 = await open(h.client, f.other);
+  assert.ok(w65);
+  assert.equal((await call(h.client, "ls", { workspace_id: oldest })).structuredContent.code, "WORKSPACE_EXPIRED");
+  assert.equal((await call(h.client, "ls", { workspace_id: secondOldest })).structuredContent.code, undefined);
+
+  // Opening the 66th workspace evicts workspaces[2] because secondOldest was recently used.
+  const w66 = await open(h.client, f.other);
+  assert.ok(w66);
+  assert.equal((await call(h.client, "ls", { workspace_id: workspaces[2] })).structuredContent.code, "WORKSPACE_EXPIRED");
+
+  // An active command protects a workspace even when room is needed.
+  const busy = workspaces[3];
+  const busyPromise = call(h.client, "bash", { workspace_id: busy, request_key: "busy-cmd", command: "echo $$ > busy.pid; sleep 30" });
+  const busyPid = Number(await untilFile(join(f.project, "busy.pid")));
+  t.after(() => { try { process.kill(busyPid, "SIGKILL"); } catch {} });
+
+  const w67 = await open(h.client, f.other);
+  assert.ok(w67);
+  // workspaces[4] should be evicted instead of busy.
+  assert.equal((await call(h.client, "ls", { workspace_id: workspaces[4] })).structuredContent.code, "WORKSPACE_EXPIRED");
+
+  await call(h.client, "workspace_close", { workspace_id: busy });
+  await busyPromise;
+});
+

@@ -13,8 +13,8 @@ function tool(name: string, description: string, properties: Record<string, obje
 }
 
 export const catalog: Tool[] = [
-  tool("workspace_open", "Open a local working directory and return a workspace_id, account, Git state, and instruction paths. Omit cwd for home. This is directory routing, not a sandbox; absolute and parent paths remain usable.", { cwd: string }, [], true),
-  { ...tool("workspace_close", "Close this workspace and cancel its active calls. Does not undo changes or stop separately supervised jobs. Repeating close is harmless.", workspace, ["workspace_id"], true), annotations: { ...mutating, idempotentHint: true } },
+  tool("workspace_open", "Open a local working directory and return a workspace_id, account, Git state, and instruction paths. Omit cwd for home. This is directory routing, not a sandbox; absolute and parent paths remain usable.", { cwd: string }, []),
+  { ...tool("workspace_close", "Close this workspace and cancel its active calls. Does not undo changes or stop separately supervised jobs. Repeating close is harmless.", workspace, ["workspace_id"]), annotations: { ...readonly, idempotentHint: true } },
   tool("read", "Read actual file content using Pi. Returns a file revision for subsequent edit/write preconditions. Use offset/limit for more context.", { ...workspace, path, offset: { type: "integer", minimum: 1 }, limit: { type: "integer", minimum: 1, maximum: 2000 } }, ["workspace_id", "path"]),
   tool("ls", "List directory contents using Pi.", { ...workspace, path, limit: { type: "integer", minimum: 1, maximum: 2000 } }, ["workspace_id"]),
   tool("find", "Find files by glob using Pi. Use a bounded path to avoid scanning unrelated mounts.", { ...workspace, pattern: string, path, limit: { type: "integer", minimum: 1, maximum: 2000 } }, ["workspace_id", "pattern"]),

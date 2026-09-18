@@ -14,6 +14,7 @@ interface Workspace {
   cwd: string;
   active: Map<AbortController, Promise<CallToolResult>>;
   closing?: Promise<CallToolResult>;
+  lastUsed: number;
 }
 
 /** One owner, one computer. Workspaces are directory records, not agent sessions. */
@@ -57,6 +58,7 @@ export class Bridge {
     const operation = async () => {
       const workspace = this.workspaces.get(args.workspace_id);
       if (!workspace || workspace.closing) return failure(new BridgeError("WORKSPACE_EXPIRED", "Open a workspace and use its new workspace_id"));
+      workspace.lastUsed = Date.now();
       const controller = new AbortController();
       const combined = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
       const pending = Promise.resolve().then(() => {
@@ -68,7 +70,10 @@ export class Bridge {
         return value;
       }).then(value => ({ ...value, structuredContent: { ...value.structuredContent, workspace_id: args.workspace_id, cwd: workspace.cwd } }));
       workspace.active.set(controller, pending);
-      try { return await pending; } finally { workspace.active.delete(controller); }
+      try { return await pending; } finally {
+        workspace.active.delete(controller);
+        workspace.lastUsed = Date.now();
+      }
     };
     // Consult receipts before workspace lookup so retries survive closed/expired handles.
     return receiptTools.has(name)
@@ -77,16 +82,24 @@ export class Bridge {
   }
 
   private async open(input?: string, signal?: AbortSignal): Promise<CallToolResult> {
-    if (this.workspaces.size + this.opening >= 64) throw new BridgeError("WORKSPACE_LIMIT", "Close unused workspaces; at most 64 can be open");
+    signal?.throwIfAborted();
     this.opening++;
     try {
       const cwd = await realpath(resolveInput(input ?? homedir(), homedir()));
       if (!(await stat(cwd)).isDirectory()) throw new BridgeError("INVALID_WORKSPACE", "cwd must be a directory");
+      while (this.workspaces.size + this.opening > 64) {
+        const idle = [...this.workspaces.entries()]
+          .filter(([, ws]) => !ws.active.size && !ws.closing)
+          .sort(([, a], [, b]) => a.lastUsed - b.lastUsed)[0];
+        if (!idle) throw new BridgeError("WORKSPACE_LIMIT", "Close unused workspaces; at most 64 can be open");
+        await this.closeWorkspace(idle[0]);
+        signal?.throwIfAborted();
+      }
       const context = await orientation(cwd);
       signal?.throwIfAborted();
       if (this.stopping) throw new BridgeError("BRIDGE_STOPPED", "Server is stopping");
       const id = randomUUID();
-      this.workspaces.set(id, { cwd, active: new Map() });
+      this.workspaces.set(id, { cwd, active: new Map(), lastUsed: Date.now() });
       return result(`Workspace ready: ${cwd}. Read the applicable instruction files.`, { workspace_id: id, ...context, pi: "0.85.1", models_for_tools: false });
     } finally { this.opening--; }
   }
