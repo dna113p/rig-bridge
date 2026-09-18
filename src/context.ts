@@ -43,5 +43,5 @@ export async function orientation(cwd: string) {
     os: platform(), arch: arch(), shell: process.env.SHELL ?? "/bin/bash", repository: repo,
     instructions, skills, skills_truncated: skills.length >= 100,
     access: { profile: "account-administration", cwd_is_sandbox: false, elevation: "Use existing sudo -n or configured host mechanisms. Authentication is never automatically supplied." },
-    context_note: "Read the relevant instruction and skill files with read. Context and reasoning stay in ChatGPT." };
+    context_note: "Read the relevant instruction and skill files with read. Context and reasoning stay in the calling assistant." };
 }

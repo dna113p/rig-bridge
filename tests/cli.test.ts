@@ -51,7 +51,7 @@ test("HTTP CLI creates private credentials, preserves them, and shuts down activ
 test("optional Linux startup unit validates without installing or starting it", { skip: process.platform !== "linux" }, async t => {
   const f = await fixture(); t.after(f.close);
   const unit = execFileSync(process.execPath, [join(root, "scripts/install-service.ts"), "--print"], { encoding: "utf8" });
-  const path = join(f.directory, "pi-tools-mcp.service");
+  const path = join(f.directory, "rig-bridge.service");
   await writeFile(path, unit);
   assert.match(unit, /KillMode=mixed/);
   assert.match(unit, /TimeoutStopSec=12/);

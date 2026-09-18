@@ -1,6 +1,16 @@
 {
-  "name": "pi-tools-mcp",
+  "name": "rig-bridge",
   "version": "0.1.2",
+  "description": "A workstation bridge exposing local tools and workspaces over MCP.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dna113p/rig-bridge.git"
+  },
+  "bugs": {
+    "url": "https://github.com/dna113p/rig-bridge/issues"
+  },
+  "homepage": "https://github.com/dna113p/rig-bridge#readme",
   "private": true,
   "type": "module",
   "engines": {
@@ -23,6 +33,5 @@
   "devDependencies": {
     "@types/node": "24.0.0",
     "typescript": "5.9.3"
-  },
-  "description": "A small MCP server exposing Pi tools with local workspace routing."
+  }
 }

@@ -6,9 +6,19 @@ import { resolve, join } from "node:path";
 import { parseArgs } from "node:util";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 
+import { existsSync } from "node:fs";
+
+function defaultStateDir() {
+  const base = process.env.XDG_STATE_HOME ?? join(homedir(), ".local/state");
+  const preferred = join(base, "rig-bridge");
+  const legacy = join(base, "pi-tools-mcp");
+  try { if (!existsSync(preferred) && existsSync(legacy)) return legacy; } catch {}
+  return preferred;
+}
+
 const { values, positionals } = parseArgs({ allowPositionals: true, options: {
   help: { type: "boolean" }, port: { type: "string", default: "8767" },
-  "state-dir": { type: "string", default: join(process.env.XDG_STATE_HOME ?? join(homedir(), ".local/state"), "pi-tools-mcp") },
+  "state-dir": { type: "string", default: defaultStateDir() },
   "token-file": { type: "string" },
 } });
 if (values.help) {
@@ -48,7 +58,7 @@ if (values.help) {
   try {
     if (httpMode) {
       http = await (await import("./http.ts")).serveHttp(bridge, { port, tokenFile });
-      console.error(`pi-tools-mcp listening at ${http.url}\nAuthorization file: ${tokenFile}`);
+      console.error(`rig-bridge listening at ${http.url}\nAuthorization file: ${tokenFile}`);
     } else {
       server!.onclose = () => { void shutdown(); };
       process.stdin.on("end", () => { void shutdown(); });

@@ -1,4 +1,4 @@
-# Pi Tools MCP
+# Rig Bridge
 
 A small MCP server for working on your computer from an AI assistant. The assistant holds the conversation and decides what to do. The server calls Pi's actual file and shell tools and returns their results, without starting another model session.
 
@@ -18,7 +18,7 @@ npm run serve
 
 Pi is installed as a dependency. A separate Pi CLI installation or model API key is unnecessary for the server's own tool execution.
 
-HTTP listens at `http://127.0.0.1:8767/mcp`. On first start, it generates an owner-only bearer file at `~/.local/state/pi-tools-mcp/http-authorization` (or under `XDG_STATE_HOME`). The credential is never printed. The file contains the complete value to send in the `Authorization` header, including `Bearer`.
+HTTP listens at `http://127.0.0.1:8767/mcp`. On first start, it generates an owner-only bearer file at `~/.local/state/rig-bridge/http-authorization` (or under `XDG_STATE_HOME`). The credential is never printed. The file contains the complete value to send in the `Authorization` header, including `Bearer`.
 
 Connect your MCP client or authenticated tunnel/proxy to that HTTP endpoint and supply the header. The proxy must preserve the local target's `Host` and omit browser `Origin`. A remote assistant needs a connection that can reach this local endpoint. Tunnel provisioning is separate from this package.
 
@@ -36,9 +36,9 @@ For a client that launches a local stdio MCP server, use the **absolute Node exe
 ```json
 {
   "mcpServers": {
-    "pi-tools": {
+    "rig-bridge": {
       "command": "/absolute/path/to/node",
-      "args": ["/absolute/path/to/pi-tools-mcp/src/cli.ts"]
+      "args": ["/absolute/path/to/rig-bridge/src/cli.ts"]
     }
   }
 }
@@ -94,9 +94,9 @@ File locks live under the state directory. A forced crash during a write can lea
 
 ```sh
 npm run install:service -- --start
-systemctl --user status pi-tools-mcp.service
-journalctl --user -u pi-tools-mcp.service -n 50
-systemctl --user stop pi-tools-mcp.service
+systemctl --user status rig-bridge.service
+journalctl --user -u rig-bridge.service -n 50
+systemctl --user stop rig-bridge.service
 ```
 
 Without `--start`, the installer writes and validates the unit without enabling or starting it. `--print` prints the unit without installing it. It captures this checkout's absolute path, Node executable, and current PATH; rerun after moving the checkout or changing Node. The installer does not configure a tunnel or enable user lingering. Boot/login behavior follows the user's existing systemd configuration. Other platforms can launch the Node command with their preferred supervisor.

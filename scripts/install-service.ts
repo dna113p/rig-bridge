@@ -11,14 +11,14 @@ if (values.start && values.print) throw new Error("Choose --start or --print");
 if (process.platform !== "linux") throw new Error("This optional installer requires Linux user systemd. Run npm run serve directly on other platforms.");
 const home = homedir();
 const directory = join(home, ".config/systemd/user");
-const path = join(directory, "pi-tools-mcp.service");
-const marker = "# Managed by pi-tools-mcp\n";
+const path = join(directory, "rig-bridge.service");
+const marker = "# Managed by rig-bridge\n";
 const quote = (value: string) => `"${value.replaceAll("\\", "\\\\").replaceAll('"', '\\"').replaceAll("%", "%%").replaceAll("$", "$$")}"`;
 const entry = fileURLToPath(new URL("../src/cli.ts", import.meta.url));
-const state = join(process.env.XDG_STATE_HOME ?? join(home, ".local/state"), "pi-tools-mcp");
+const state = join(process.env.XDG_STATE_HOME ?? join(home, ".local/state"), "rig-bridge");
 const searchPath = process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin";
 const unit = `${marker}[Unit]
-Description=Pi tools over MCP
+Description=Rig Bridge over MCP
 After=network-online.target
 
 [Service]
@@ -47,6 +47,6 @@ await chmod(path, 0o600);
 const run = (command: string, args: string[]) => execFileSync(command, args, { stdio: "inherit" });
 run("systemd-analyze", ["--user", "verify", path]);
 run("systemctl", ["--user", "daemon-reload"]);
-if (values.start) run("systemctl", ["--user", "enable", "--now", "pi-tools-mcp.service"]);
-console.log(`Installed ${path}\nStart: systemctl --user enable --now pi-tools-mcp.service\nStatus: systemctl --user status pi-tools-mcp.service\nStop: systemctl --user stop pi-tools-mcp.service`);
+if (values.start) run("systemctl", ["--user", "enable", "--now", "rig-bridge.service"]);
+console.log(`Installed ${path}\nStart: systemctl --user enable --now rig-bridge.service\nStatus: systemctl --user status rig-bridge.service\nStop: systemctl --user stop rig-bridge.service`);
 }

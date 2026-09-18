@@ -32,7 +32,7 @@ export async function atomicReplace(path: string, content: string, expected: str
   await requireRevision(path, expected);
   let mode = 0o600;
   try { mode = (await stat(path)).mode & 0o777; } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
-  const temp = join(dirname(path), `.pi-tools-mcp-${randomUUID()}.tmp`);
+  const temp = join(dirname(path), `.rig-bridge-${randomUUID()}.tmp`);
   const file = await open(temp, "wx", mode);
   try {
     await file.writeFile(content);

@@ -27,7 +27,7 @@ export async function untilFile(path: string): Promise<string> {
   throw new Error(`File did not appear: ${path}`);
 }
 export async function fixture() {
-  const directory = await mkdtemp(join(tmpdir(), "pi-tools-mcp-test-"));
+  const directory = await mkdtemp(join(tmpdir(), "rig-bridge-test-"));
   const project = join(directory, "project"), other = join(directory, "other");
   await Promise.all([mkdir(project), mkdir(other)]);
   return { directory, project, other, state: join(directory, "state"), close: () => rm(directory, { recursive: true, force: true }) };
