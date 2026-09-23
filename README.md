@@ -125,6 +125,16 @@ To connect ChatGPT to your local MCP tools using OpenAI's Secure MCP Tunnel (e.g
    systemctl --user status rig-bridge-tunnel.service
    ```
 
+### Network roaming and auto-recovery
+
+When switching between Wi-Fi networks, tethering to a mobile hotspot, or resuming after system sleep, long-polling tunnel sockets can hang on stale network routes.
+
+`npm run tunnel` and `rig-bridge-tunnel.service` include an automatic supervisor by default:
+- **Route Monitoring**: Tracks default IP route and gateway changes (`ip route show default`). If a network switch occurs and internet is reachable, the tunnel is automatically restarted with fresh sockets.
+- **Stall Detection**: Monitors health metrics on `127.0.0.1:8081/metrics`. If a long-poll request stalls (>65s without a successful poll) while internet is up, it triggers a clean restart.
+- Pass `--no-watchdog` to disable the supervisor if desired.
+- For external or existing tunnel services (e.g. `pi-mcp-bridge-tunnel.service`), a standalone watchdog script is provided at `scripts/tunnel-watchdog.sh`.
+
 ## Development and verification
 
 ```sh

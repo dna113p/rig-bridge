@@ -4,7 +4,7 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { spawn, execSync } from "node:child_process";
+import { spawn, execSync, type ChildProcess } from "node:child_process";
 import { parseArgs } from "node:util";
 import { randomBytes } from "node:crypto";
 
@@ -41,12 +41,15 @@ const { values } = parseArgs({
       default: process.env.CONTROL_PLANE_API_KEY ?? process.env.OPENAI_API_KEY,
     },
     port: { type: "string", default: process.env.MCP_PORT ?? "8767" },
+    "health-port": { type: "string", default: process.env.HEALTH_PORT ?? "8081" },
     "state-dir": {
       type: "string",
       default: defaultStateDir(),
     },
     "token-file": { type: "string" },
     bin: { type: "string", default: process.env.TUNNEL_CLIENT },
+    watchdog: { type: "boolean", default: true },
+    "no-watchdog": { type: "boolean" },
   },
 });
 
@@ -59,6 +62,9 @@ Options:
   --tunnel-id ID    OpenAI Tunnel ID (default: ${values["tunnel-id"]})
   --api-key KEY     OpenAI Control Plane API Key (or CONTROL_PLANE_API_KEY env)
   --port PORT       rig-bridge port (default: 8767)
+  --health-port PORT Health and metrics port (default: 8081)
+  --watchdog        Enable network change & stall auto-recovery (default: true)
+  --no-watchdog     Disable auto-recovery supervisor
   --state-dir PATH  Directory storing state and http-authorization
   --token-file PATH Path to http-authorization token file
   --bin PATH        Path to tunnel-client binary
@@ -154,40 +160,151 @@ or as a systemd service:
   systemctl --user start rig-bridge.service\x1b[0m\n`);
 }
 
-// 4. Launch tunnel-client
+// 4. Launch and supervise tunnel-client
+const healthPort = Number(values["health-port"] ?? "8081");
+const enableWatchdog = !values["no-watchdog"] && values.watchdog !== false;
+
+function getDefaultRoute(): string {
+  if (process.platform !== "linux") return "";
+  try {
+    return execSync("ip route show default 2>/dev/null", { encoding: "utf8" }).trim();
+  } catch {
+    return "";
+  }
+}
+
+async function isInternetReachable(): Promise<boolean> {
+  try {
+    const res = await fetch("https://api.openai.com/v1/models", { signal: AbortSignal.timeout(3000) });
+    return res.status === 401 || res.ok;
+  } catch {
+    return false;
+  }
+}
+
+async function getLastPollTimestamp(): Promise<number | null> {
+  try {
+    const res = await fetch(`http://127.0.0.1:${healthPort}/metrics`, { signal: AbortSignal.timeout(2000) });
+    if (!res.ok) return null;
+    const text = await res.text();
+    const match = text.match(/^commands_poll_last_successful_timestamp_seconds\S*\s+([0-9.e+]+)/m);
+    if (!match) return null;
+    const val = Number.parseFloat(match[1]);
+    return Number.isFinite(val) ? Math.floor(val) : null;
+  } catch {
+    return null;
+  }
+}
+
 console.log(`Starting tunnel-client for ${tunnelId}...`);
 console.log(`Target MCP Server: http://127.0.0.1:${port}/mcp`);
 console.log(`Token File: ${tokenFile}`);
+if (enableWatchdog) {
+  console.log(`Watchdog Supervisor: active (monitoring route changes & poll stalls on port ${healthPort})`);
+}
 
-const child = spawn(
-  tunnelBinary,
-  [
-    "run",
-    "--control-plane.tunnel-id",
-    tunnelId,
-    "--mcp.server-url",
-    `http://127.0.0.1:${port}/mcp`,
-    "--mcp.extra-headers",
-    `Authorization: file:${tokenFile}`,
-    "--mcp.discovery-extra-headers",
-    `Authorization: file:${tokenFile}`,
-  ],
-  {
-    stdio: "inherit",
-    env: {
-      ...process.env,
-      CONTROL_PLANE_API_KEY: apiKey,
-    },
-  }
-);
+let currentChild: ChildProcess | null = null;
+let currentRoute = getDefaultRoute();
+let shuttingDown = false;
+let restartTimeout: NodeJS.Timeout | null = null;
+
+function spawnChild() {
+  if (shuttingDown || !tunnelId) return;
+  currentRoute = getDefaultRoute();
+
+  const child: ChildProcess = spawn(
+    tunnelBinary,
+    [
+      "run",
+      "--control-plane.tunnel-id",
+      tunnelId,
+      "--mcp.server-url",
+      `http://127.0.0.1:${port}/mcp`,
+      "--mcp.extra-headers",
+      `Authorization: file:${tokenFile}`,
+      "--mcp.discovery-extra-headers",
+      `Authorization: file:${tokenFile}`,
+      "--health.listen-addr",
+      `127.0.0.1:${healthPort}`,
+    ],
+    {
+      stdio: "inherit",
+      env: {
+        ...process.env,
+        CONTROL_PLANE_API_KEY: apiKey,
+      },
+    }
+  );
+
+  currentChild = child;
+
+  child.on("exit", (code: number | null, signal: NodeJS.Signals | null) => {
+    currentChild = null;
+    if (shuttingDown) {
+      if (signal) process.kill(process.pid, signal);
+      else process.exit(code ?? 0);
+      return;
+    }
+    console.warn(`\x1b[33m[supervisor] tunnel-client exited (code=${code}, signal=${signal}). Restarting in 2s...\x1b[0m`);
+    restartTimeout = setTimeout(spawnChild, 2000);
+  });
+}
+
+function restartChild(reason: string) {
+  if (shuttingDown || !currentChild) return;
+  console.warn(`\x1b[33m[supervisor] ${reason}; restarting tunnel-client...\x1b[0m`);
+  const child = currentChild;
+  currentChild = null;
+  child.kill("SIGTERM");
+  const forceKill = setTimeout(() => {
+    try { child.kill("SIGKILL"); } catch {}
+  }, 4000);
+  child.once("exit", () => {
+    clearTimeout(forceKill);
+    if (!shuttingDown) {
+      setTimeout(spawnChild, 500);
+    }
+  });
+}
+
+spawnChild();
+
+if (enableWatchdog) {
+  const supervisorInterval = setInterval(async () => {
+    if (shuttingDown || !currentChild) return;
+
+    // 1. Check network default route change
+    const newRoute = getDefaultRoute();
+    if (newRoute && currentRoute && newRoute !== currentRoute) {
+      if (await isInternetReachable()) {
+        restartChild(`Network route changed from [${currentRoute}] to [${newRoute}]`);
+        return;
+      }
+    }
+
+    // 2. Check for hung/stalled poll
+    const lastPoll = await getLastPollTimestamp();
+    if (lastPoll && lastPoll > 0) {
+      const now = Math.floor(Date.now() / 1000);
+      const age = now - lastPoll;
+      if (age > 65) {
+        if (await isInternetReachable()) {
+          restartChild(`Poll stalled (no successful poll in ${age}s)`);
+        }
+      }
+    }
+  }, 10_000);
+  supervisorInterval.unref();
+}
 
 const shutdown = () => {
-  child.kill("SIGTERM");
+  shuttingDown = true;
+  if (restartTimeout) clearTimeout(restartTimeout);
+  if (currentChild) {
+    currentChild.kill("SIGTERM");
+  } else {
+    process.exit(0);
+  }
 };
 process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);
-
-child.on("exit", (code, signal) => {
-  if (signal) process.kill(process.pid, signal);
-  else process.exit(code ?? 0);
-});
