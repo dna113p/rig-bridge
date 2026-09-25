@@ -6,6 +6,7 @@ import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { BridgeError } from "./common.ts";
 import { Bridge } from "./server.ts";
+import { renderDashboardHtml } from "./ui.ts";
 
 interface Session { transport: StreamableHTTPServerTransport; server: Server; lastUsed: number; active: number }
 export async function serveHttp(bridge: Bridge, options: { port: number; tokenFile: string }) {
@@ -20,9 +21,42 @@ export async function serveHttp(bridge: Bridge, options: { port: number; tokenFi
     res.end(JSON.stringify({ jsonrpc: "2.0", id: null, error: { code: -32000, message } }));
   };
   const handle = async (req: IncomingMessage, res: ServerResponse) => {
-    if (req.headers.host !== `127.0.0.1:${port}` || req.headers.origin) { reject(res, 403, "Host or browser origin rejected"); return; }
+    if (req.headers.host !== `127.0.0.1:${port}`) { reject(res, 403, "Host rejected"); return; }
+    if (req.headers.origin && req.headers.origin !== `http://127.0.0.1:${port}`) { reject(res, 403, "Browser origin rejected"); return; }
+
     if (req.url === "/healthz" && req.method === "GET") { res.writeHead(stopping ? 503 : 200); res.end(stopping ? "stopping" : "live"); return; }
+
+    if ((req.url === "/" || req.url === "/ui") && req.method === "GET") {
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
+      res.end(renderDashboardHtml(port));
+      return;
+    }
+
+    if (req.url === "/api/status" && req.method === "GET") {
+      res.writeHead(200, {
+        "content-type": "application/json",
+        "cache-control": "no-store",
+      });
+      res.end(JSON.stringify(bridge.getStatus()));
+      return;
+    }
+
+    if (req.url === "/api/abort" && req.method === "POST") {
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) chunks.push(chunk);
+      try {
+        const payload = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+        const aborted = bridge.abortCommand(payload.workspace_id, payload.command_id);
+        res.writeHead(aborted ? 200 : 404, { "content-type": "application/json" });
+        res.end(JSON.stringify({ aborted }));
+      } catch {
+        reject(res, 400, "Invalid JSON");
+      }
+      return;
+    }
+
     if (req.url !== "/mcp") { res.writeHead(404, { "content-type": "text/plain" }); res.end("Not found"); return; }
+    if (req.headers.origin) { reject(res, 403, "Browser origin rejected"); return; }
     const supplied = Buffer.from(req.headers.authorization ?? "");
     if (supplied.length !== secret.length || !timingSafeEqual(supplied, secret)) { reject(res, 401, "Unauthorized"); return; }
     if (stopping) { reject(res, 503, "Bridge stopping"); return; }

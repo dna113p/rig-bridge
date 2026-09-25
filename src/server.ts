@@ -10,9 +10,91 @@ import { resolveInput } from "./files.ts";
 import { Journal } from "./journal.ts";
 import { executeTool } from "./tools.ts";
 
-interface Workspace {
+export interface CommandRecord {
+  id: string;
+  workspaceId: string;
+  tool: string;
+  description: string;
+  startedAt: number;
+  completedAt?: number;
+  durationMs?: number;
+  success?: boolean;
+  error?: string;
+}
+
+export function summarizeToolCall(tool: string, args: any): string {
+  if (!args || typeof args !== "object") return tool;
+  switch (tool) {
+    case "bash":
+      return typeof args.command === "string" ? args.command : "bash";
+    case "edit":
+    case "read":
+    case "write":
+      return typeof args.path === "string" ? `${tool} ${args.path}` : tool;
+    case "grep":
+      return `grep "${args.pattern ?? ""}" ${args.path ?? ""}`.trim();
+    case "find":
+      return `find "${args.pattern ?? ""}" in ${args.path ?? "."}`.trim();
+    case "ls":
+      return `ls ${args.path ?? "."}`.trim();
+    case "skill_info":
+      return typeof args.name === "string" ? `skill_info ${args.name}` : "skill_info";
+    case "workspace_open":
+      return `workspace_open ${args.cwd ?? "~"}`;
+    case "workspace_close":
+      return `workspace_close ${args.workspace_id ?? ""}`;
+    default:
+      return tool;
+  }
+}
+
+export interface WorkspaceStatusView {
+  id: string;
   cwd: string;
-  active: Map<AbortController, Promise<CallToolResult>>;
+  createdAt: number;
+  lastUsed: number;
+  activeCommands: {
+    id: string;
+    tool: string;
+    description: string;
+    startedAt: number;
+    elapsedMs: number;
+  }[];
+  lastCommand?: {
+    tool: string;
+    description: string;
+    completedAt: number;
+    durationMs: number;
+    success: boolean;
+    error?: string;
+  };
+  recentCommands: {
+    id: string;
+    tool: string;
+    description: string;
+    startedAt: number;
+    completedAt: number;
+    durationMs: number;
+    success: boolean;
+    error?: string;
+  }[];
+}
+
+export interface BridgeStatusView {
+  version: string;
+  startedAt: number;
+  uptimeSeconds: number;
+  workspacesCount: number;
+  activeCommandsCount: number;
+  workspaces: WorkspaceStatusView[];
+}
+
+interface Workspace {
+  id: string;
+  cwd: string;
+  createdAt: number;
+  active: Map<AbortController, { command: CommandRecord; promise: Promise<CallToolResult> }>;
+  recentCommands: CommandRecord[];
   closing?: Promise<CallToolResult>;
   lastUsed: number;
 }
@@ -26,6 +108,7 @@ export class Bridge {
   private shutdown?: Promise<void>;
   private stopping = false;
   private stateDirectory: string;
+  private startedAt = Date.now();
 
   constructor(stateDirectory: string) {
     this.stateDirectory = stateDirectory;
@@ -61,6 +144,18 @@ export class Bridge {
       workspace.lastUsed = Date.now();
       const controller = new AbortController();
       const combined = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
+
+      const commandId = randomUUID();
+      const startedAt = Date.now();
+      const description = summarizeToolCall(name, args);
+      const commandRecord: CommandRecord = {
+        id: commandId,
+        workspaceId: args.workspace_id,
+        tool: name,
+        description,
+        startedAt,
+      };
+
       const pending = Promise.resolve().then(() => {
         combined.throwIfAborted();
         return executeTool(name, args, workspace.cwd, this.stateDirectory, combined);
@@ -69,10 +164,29 @@ export class Bridge {
         if (receiptTools.has(name)) value.structuredContent = { ...value.structuredContent, effects_may_have_occurred: true };
         return value;
       }).then(value => ({ ...value, structuredContent: { ...value.structuredContent, workspace_id: args.workspace_id, cwd: workspace.cwd } }));
-      workspace.active.set(controller, pending);
-      try { return await pending; } finally {
+
+      workspace.active.set(controller, { command: commandRecord, promise: pending });
+      try {
+        const res = await pending;
+        commandRecord.completedAt = Date.now();
+        commandRecord.durationMs = commandRecord.completedAt - startedAt;
+        commandRecord.success = !res.isError;
+        const first = res.content?.[0];
+        if (res.isError && first && "text" in first && typeof first.text === "string") {
+          commandRecord.error = first.text.slice(0, 300);
+        }
+        return res;
+      } catch (error) {
+        commandRecord.completedAt = Date.now();
+        commandRecord.durationMs = commandRecord.completedAt - startedAt;
+        commandRecord.success = false;
+        commandRecord.error = error instanceof Error ? error.message : String(error);
+        throw error;
+      } finally {
         workspace.active.delete(controller);
         workspace.lastUsed = Date.now();
+        workspace.recentCommands.unshift(commandRecord);
+        if (workspace.recentCommands.length > 20) workspace.recentCommands.pop();
       }
     };
     // Consult receipts before workspace lookup so retries survive closed/expired handles.
@@ -99,7 +213,8 @@ export class Bridge {
       signal?.throwIfAborted();
       if (this.stopping) throw new BridgeError("BRIDGE_STOPPED", "Server is stopping");
       const id = randomUUID();
-      this.workspaces.set(id, { cwd, active: new Map(), lastUsed: Date.now() });
+      const now = Date.now();
+      this.workspaces.set(id, { id, cwd, createdAt: now, active: new Map(), recentCommands: [], lastUsed: now });
       const sections = [`Workspace ready: ${cwd}.`];
       if (context.project_context) sections.push(context.project_context);
       if (context.skills_prompt) sections.push(context.skills_prompt);
@@ -108,15 +223,90 @@ export class Bridge {
     } finally { this.opening--; }
   }
 
-  private closeWorkspace(id: string): Promise<CallToolResult> {
+  closeWorkspace(id: string): Promise<CallToolResult> {
     const workspace = this.workspaces.get(id);
     if (!workspace) return Promise.resolve(result("Workspace is closed.", { workspace_id: id, closed: true }));
     return workspace.closing ??= (async () => {
       for (const controller of workspace.active.keys()) controller.abort();
-      await Promise.allSettled(workspace.active.values());
+      await Promise.allSettled([...workspace.active.values()].map(e => e.promise));
       this.workspaces.delete(id);
       return result("Workspace closed. Active calls stopped; existing effects are not undone.", { workspace_id: id, cwd: workspace.cwd, closed: true });
     })();
+  }
+
+  abortCommand(workspaceId: string, commandId: string): boolean {
+    const workspace = this.workspaces.get(workspaceId);
+    if (!workspace) return false;
+    for (const [controller, entry] of workspace.active.entries()) {
+      if (entry.command.id === commandId) {
+        controller.abort();
+        return true;
+      }
+    }
+    return false;
+  }
+
+  getStatus(): BridgeStatusView {
+    const now = Date.now();
+    let totalActive = 0;
+    const workspaces: WorkspaceStatusView[] = [];
+
+    for (const [id, ws] of this.workspaces.entries()) {
+      const activeCommands = [...ws.active.values()].map(({ command }) => ({
+        id: command.id,
+        tool: command.tool,
+        description: command.description,
+        startedAt: command.startedAt,
+        elapsedMs: now - command.startedAt,
+      }));
+      totalActive += activeCommands.length;
+
+      const recent = ws.recentCommands.map(c => ({
+        id: c.id,
+        tool: c.tool,
+        description: c.description,
+        startedAt: c.startedAt,
+        completedAt: c.completedAt ?? now,
+        durationMs: c.durationMs ?? 0,
+        success: c.success ?? false,
+        error: c.error,
+      }));
+
+      const last = recent[0] ? {
+        tool: recent[0].tool,
+        description: recent[0].description,
+        completedAt: recent[0].completedAt,
+        durationMs: recent[0].durationMs,
+        success: recent[0].success,
+        error: recent[0].error,
+      } : undefined;
+
+      workspaces.push({
+        id,
+        cwd: ws.cwd,
+        createdAt: ws.createdAt,
+        lastUsed: ws.lastUsed,
+        activeCommands,
+        lastCommand: last,
+        recentCommands: recent,
+      });
+    }
+
+    workspaces.sort((a, b) => {
+      if (a.activeCommands.length !== b.activeCommands.length) {
+        return b.activeCommands.length - a.activeCommands.length;
+      }
+      return b.lastUsed - a.lastUsed;
+    });
+
+    return {
+      version: "0.1.2",
+      startedAt: this.startedAt,
+      uptimeSeconds: Math.floor((now - this.startedAt) / 1000),
+      workspacesCount: this.workspaces.size,
+      activeCommandsCount: totalActive,
+      workspaces,
+    };
   }
 
   close(): Promise<void> {

@@ -19,6 +19,7 @@
   "scripts": {
     "start": "node src/cli.ts",
     "serve": "node src/cli.ts serve",
+    "status": "node src/cli.ts status",
     "tunnel": "node scripts/run-tunnel.ts",
     "tunnel:watchdog": "bash scripts/tunnel-watchdog.sh",
     "install:service": "node scripts/install-service.ts",

@@ -46,6 +46,37 @@ For a client that launches a local stdio MCP server, use the **absolute Node exe
 
 Stdio uses the local client's process access. Use HTTP when multiple clients should share one server. This checkout runs TypeScript directly under Node 24; global npm installation is not an advertised installation path.
 
+## Live Status & Workspace Viewer
+
+When using Rig Bridge with remote assistants like ChatGPT web, it can be difficult to see which workspace the assistant is operating in or whether a command is actively running.
+
+Rig Bridge includes both a real-time web dashboard and a terminal monitor.
+
+### Web Dashboard
+
+Open in your browser:
+- **`http://127.0.0.1:8767/`** (or `http://127.0.0.1:8767/ui`)
+
+Features:
+- **Active Workspaces**: Shows all currently open workspace paths and IDs.
+- **Running Commands**: Shows commands actively executing with a live ticking timer.
+- **Last Command & Recent Activity**: Shows tool name, command or target path, duration, relative time, and success/error status.
+- **Abort Action**: Stop hanging or runaway commands directly from the dashboard.
+- **Live Updates**: Automatically refreshes every second with connection health monitoring.
+
+### CLI Monitor
+
+Inspect status from your shell:
+
+```sh
+npm run status
+```
+
+Options:
+- `npm run status -- --watch` : Live updating terminal monitor.
+- `npm run status -- --json`  : Dump raw JSON status.
+- `npm run status -- --port 8767` : Connect to a non-standard port.
+
 ## Ten tools
 
 | Tool | Purpose |
