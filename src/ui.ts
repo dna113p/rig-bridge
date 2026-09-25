@@ -8,74 +8,97 @@ export function renderDashboardHtml(port: number): string {
   <style>
     :root {
       --bg: #090d16;
+      --sidebar-bg: #0b1120;
+      --sidebar-header: #0f172a;
       --card-bg: #131c2e;
+      --card-hover: #17233a;
+      --card-selected: #1a2942;
       --card-border: #1e293b;
-      --card-border-active: #3b82f6;
+      --card-border-active: #38bdf8;
       --card-border-running: #f59e0b;
       --text: #f8fafc;
       --text-muted: #94a3b8;
       --text-dim: #64748b;
       --accent: #38bdf8;
+      --accent-dim: rgba(56, 189, 248, 0.15);
       --success: #10b981;
       --warning: #f59e0b;
       --danger: #ef4444;
-      --code-bg: #0b1120;
+      --code-bg: #070c18;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
+    html, body {
+      height: 100%;
       background: var(--bg);
       color: var(--text);
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-      padding: 24px 20px;
       line-height: 1.5;
+      overflow: hidden;
     }
-    .container {
-      max-width: 1040px;
-      margin: 0 auto;
-    }
-    header {
+    .app-layout {
       display: flex;
-      align-items: center;
-      justify-content: space-between;
-      flex-wrap: wrap;
-      gap: 16px;
-      margin-bottom: 24px;
-      padding-bottom: 20px;
+      height: 100vh;
+      width: 100vw;
+      overflow: hidden;
+    }
+    /* SIDEBAR */
+    .sidebar {
+      width: 360px;
+      min-width: 320px;
+      max-width: 400px;
+      background: var(--sidebar-bg);
+      border-right: 1px solid var(--card-border);
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+      flex-shrink: 0;
+    }
+    .sidebar-top {
+      padding: 18px 18px 14px;
       border-bottom: 1px solid var(--card-border);
+      background: var(--sidebar-header);
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      flex-shrink: 0;
     }
     .brand {
       display: flex;
       align-items: center;
-      gap: 12px;
+      gap: 10px;
     }
     .brand-icon {
-      width: 34px;
-      height: 34px;
+      width: 32px;
+      height: 32px;
       border-radius: 8px;
       background: linear-gradient(135deg, #0284c7, #38bdf8);
       display: flex;
       align-items: center;
       justify-content: center;
       font-weight: 800;
-      font-size: 18px;
+      font-size: 16px;
       color: #fff;
-      box-shadow: 0 0 16px rgba(56, 189, 248, 0.3);
+      box-shadow: 0 0 14px rgba(56, 189, 248, 0.35);
+      flex-shrink: 0;
     }
     .brand h1 {
-      font-size: 20px;
+      font-size: 17px;
       font-weight: 700;
       letter-spacing: -0.02em;
+      line-height: 1.2;
     }
     .brand-meta {
-      font-size: 13px;
+      font-size: 12px;
       color: var(--text-muted);
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 6px;
+      margin-top: 2px;
     }
     .pulse-dot {
-      width: 8px;
-      height: 8px;
+      width: 7px;
+      height: 7px;
       border-radius: 50%;
       background: var(--success);
       box-shadow: 0 0 8px var(--success);
@@ -83,26 +106,26 @@ export function renderDashboardHtml(port: number): string {
     }
     @keyframes pulse {
       0%, 100% { opacity: 1; transform: scale(1); }
-      50% { opacity: 0.5; transform: scale(0.85); }
+      50% { opacity: 0.45; transform: scale(0.85); }
     }
     .controls {
       display: flex;
       align-items: center;
-      gap: 12px;
+      gap: 8px;
     }
     .btn {
       background: var(--card-bg);
       border: 1px solid var(--card-border);
       color: var(--text);
-      padding: 7px 14px;
+      padding: 6px 12px;
       border-radius: 6px;
-      font-size: 13px;
+      font-size: 12px;
       font-weight: 500;
       cursor: pointer;
       transition: all 0.15s ease;
       display: inline-flex;
       align-items: center;
-      gap: 6px;
+      gap: 5px;
     }
     .btn:hover {
       background: #1e293b;
@@ -119,79 +142,102 @@ export function renderDashboardHtml(port: number): string {
     }
     .stats-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-      gap: 14px;
-      margin-bottom: 28px;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
     }
     .stat-card {
       background: var(--card-bg);
       border: 1px solid var(--card-border);
-      border-radius: 10px;
-      padding: 16px;
+      border-radius: 8px;
+      padding: 10px 12px;
     }
     .stat-card.alert-running {
       border-color: var(--warning);
-      box-shadow: 0 0 16px rgba(245, 158, 11, 0.15);
+      box-shadow: 0 0 12px rgba(245, 158, 11, 0.2);
     }
     .stat-label {
-      font-size: 12px;
+      font-size: 10px;
       font-weight: 600;
       color: var(--text-dim);
       text-transform: uppercase;
       letter-spacing: 0.05em;
-      margin-bottom: 6px;
+      margin-bottom: 2px;
     }
     .stat-val {
-      font-size: 26px;
+      font-size: 18px;
       font-weight: 700;
-      letter-spacing: -0.03em;
+      letter-spacing: -0.02em;
     }
     .stat-val.running-val {
       color: var(--warning);
     }
-    .section-title {
-      font-size: 16px;
-      font-weight: 600;
-      margin-bottom: 14px;
-      color: var(--text-muted);
+    .sidebar-section-header {
+      padding: 12px 18px 8px;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-dim);
       display: flex;
+      justify-content: space-between;
       align-items: center;
-      gap: 8px;
     }
-    .workspaces-list {
+    .workspaces-scroll {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px 12px 18px;
       display: flex;
       flex-direction: column;
-      gap: 16px;
+      gap: 8px;
     }
-    .workspace-card {
+    .ws-item {
+      padding: 12px 14px;
       background: var(--card-bg);
       border: 1px solid var(--card-border);
-      border-radius: 12px;
-      padding: 20px;
-      transition: border-color 0.2s;
-    }
-    .workspace-card.running {
-      border-color: var(--card-border-running);
-      box-shadow: 0 0 20px rgba(245, 158, 11, 0.1);
-    }
-    .ws-header {
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.15s ease;
       display: flex;
-      align-items: flex-start;
-      justify-content: space-between;
-      flex-wrap: wrap;
-      gap: 10px;
-      margin-bottom: 12px;
+      flex-direction: column;
+      gap: 6px;
+      position: relative;
     }
-    .ws-path-wrapper {
+    .ws-item:hover {
+      background: var(--card-hover);
+      border-color: #334155;
+    }
+    .ws-item.selected {
+      background: var(--card-selected);
+      border-color: var(--card-border-active);
+      box-shadow: inset 3px 0 0 var(--accent);
+    }
+    .ws-item.running {
+      border-color: var(--card-border-running);
+    }
+    .ws-item.running.selected {
+      border-color: var(--card-border-running);
+      box-shadow: inset 3px 0 0 var(--warning);
+    }
+    .ws-item-header {
       display: flex;
       align-items: center;
-      gap: 10px;
-      flex: 1;
-      min-width: 260px;
+      justify-content: space-between;
+      gap: 6px;
+    }
+    .ws-item-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
     .ws-dot {
-      width: 10px;
-      height: 10px;
+      width: 8px;
+      height: 8px;
       border-radius: 50%;
       background: var(--text-dim);
       flex-shrink: 0;
@@ -201,27 +247,31 @@ export function renderDashboardHtml(port: number): string {
       box-shadow: 0 0 8px var(--warning);
       animation: pulse 1.2s infinite ease-in-out;
     }
-    .ws-path {
+    .ws-item-path {
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-      font-size: 15px;
-      font-weight: 600;
+      font-size: 11px;
       color: var(--accent);
-      word-break: break-all;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      direction: rtl;
+      text-align: left;
     }
-    .ws-badges {
+    .ws-item-meta {
+      font-size: 11px;
+      color: var(--text-dim);
       display: flex;
+      justify-content: space-between;
       align-items: center;
-      gap: 8px;
-      flex-wrap: wrap;
     }
     .badge {
       display: inline-flex;
       align-items: center;
       gap: 4px;
-      font-size: 11px;
+      font-size: 10px;
       font-weight: 600;
-      padding: 3px 8px;
-      border-radius: 6px;
+      padding: 2px 6px;
+      border-radius: 4px;
       text-transform: uppercase;
       letter-spacing: 0.03em;
     }
@@ -242,30 +292,72 @@ export function renderDashboardHtml(port: number): string {
       font-weight: 400;
       text-transform: none;
     }
-    .ws-meta {
-      font-size: 12px;
-      color: var(--text-dim);
-      margin-bottom: 14px;
+
+    /* MAIN CONTENT */
+    .main-content {
+      flex: 1;
+      height: 100vh;
+      overflow-y: auto;
+      padding: 24px 28px;
       display: flex;
-      gap: 16px;
+      flex-direction: column;
+      gap: 20px;
+    }
+    .main-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
       flex-wrap: wrap;
+      gap: 12px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--card-border);
+    }
+    .main-title-wrap {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .main-ws-path {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--accent);
+      word-break: break-all;
+    }
+    .main-ws-meta {
+      font-size: 12px;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .section-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 10px;
     }
     .running-box {
       background: rgba(245, 158, 11, 0.08);
-      border: 1px solid rgba(245, 158, 11, 0.3);
-      border-radius: 8px;
-      padding: 12px 14px;
-      margin-bottom: 14px;
+      border: 1px solid rgba(245, 158, 11, 0.35);
+      border-radius: 10px;
+      padding: 14px 16px;
       display: flex;
       flex-direction: column;
-      gap: 8px;
+      gap: 10px;
+      box-shadow: 0 0 20px rgba(245, 158, 11, 0.08);
+      margin-bottom: 16px;
     }
     .running-box-header {
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 8px;
-      font-size: 12px;
+      font-size: 13px;
       font-weight: 600;
       color: var(--warning);
     }
@@ -274,7 +366,7 @@ export function renderDashboardHtml(port: number): string {
       font-size: 13px;
       color: #fef08a;
       background: var(--code-bg);
-      padding: 8px 10px;
+      padding: 10px 12px;
       border-radius: 6px;
       border: 1px solid rgba(245, 158, 11, 0.2);
       overflow-x: auto;
@@ -284,159 +376,199 @@ export function renderDashboardHtml(port: number): string {
     .running-timer {
       font-family: monospace;
       font-weight: 700;
+      color: #fbbf24;
     }
-    .last-command {
-      background: var(--code-bg);
+    .last-command-card {
+      background: var(--card-bg);
       border: 1px solid var(--card-border);
-      border-radius: 8px;
-      padding: 10px 14px;
-      font-size: 13px;
+      border-radius: 10px;
+      padding: 14px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .last-cmd-header {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 12px;
-      flex-wrap: wrap;
-    }
-    .last-cmd-title {
-      font-size: 11px;
-      font-weight: 600;
+      gap: 8px;
+      font-size: 12px;
       color: var(--text-dim);
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
     }
     .last-cmd-content {
       display: flex;
       align-items: center;
-      gap: 8px;
-      flex: 1;
-      min-width: 220px;
+      gap: 10px;
+      flex-wrap: wrap;
       font-family: monospace;
-      font-size: 12px;
+      font-size: 13px;
       word-break: break-all;
     }
     .status-pill {
       font-size: 11px;
       font-weight: 600;
-      padding: 2px 6px;
+      padding: 2px 7px;
       border-radius: 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
     }
     .pill-success {
       background: rgba(16, 185, 129, 0.15);
       color: #34d399;
+      border: 1px solid rgba(16, 185, 129, 0.3);
     }
     .pill-fail {
       background: rgba(239, 68, 68, 0.15);
       color: #f87171;
+      border: 1px solid rgba(239, 68, 68, 0.3);
     }
-    .details-toggle {
-      background: transparent;
-      border: none;
-      color: var(--accent);
+    .recent-table-wrap {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+      overflow: hidden;
+    }
+    .recent-table {
+      width: 100%;
+      border-collapse: collapse;
       font-size: 12px;
-      cursor: pointer;
-      margin-top: 10px;
-      padding: 0;
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
-    }
-    .details-toggle:hover {
-      text-decoration: underline;
-    }
-    .recent-list {
-      margin-top: 10px;
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
       font-family: monospace;
-      font-size: 12px;
     }
-    .recent-item {
-      padding: 6px 10px;
-      background: var(--code-bg);
-      border-radius: 6px;
-      border: 1px solid #1e293b;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 10px;
+    .recent-table th {
+      text-align: left;
+      padding: 10px 14px;
+      background: #0f172a;
+      color: var(--text-dim);
+      font-weight: 600;
+      text-transform: uppercase;
+      font-size: 11px;
+      letter-spacing: 0.04em;
+      border-bottom: 1px solid var(--card-border);
+    }
+    .recent-table td {
+      padding: 10px 14px;
+      border-bottom: 1px solid #1a2538;
+      vertical-align: middle;
+    }
+    .recent-table tr:last-child td {
+      border-bottom: none;
+    }
+    .recent-table tr:hover td {
+      background: rgba(255, 255, 255, 0.02);
     }
     .empty-state {
       background: var(--card-bg);
       border: 1px dashed var(--card-border);
       border-radius: 12px;
-      padding: 40px 20px;
+      padding: 50px 24px;
       text-align: center;
       color: var(--text-muted);
+      margin: auto 0;
     }
     .empty-icon {
-      font-size: 32px;
+      font-size: 36px;
       margin-bottom: 12px;
     }
     .empty-title {
-      font-size: 16px;
+      font-size: 17px;
       font-weight: 600;
       color: var(--text);
       margin-bottom: 6px;
     }
+
+    /* RESPONSIVE */
+    @media (max-width: 860px) {
+      body, html { overflow: auto; }
+      .app-layout {
+        flex-direction: column;
+        height: auto;
+        overflow: visible;
+      }
+      .sidebar {
+        width: 100%;
+        max-width: 100%;
+        height: auto;
+        border-right: none;
+        border-bottom: 1px solid var(--card-border);
+      }
+      .main-content {
+        height: auto;
+        overflow: visible;
+        padding: 20px;
+      }
+    }
   </style>
 </head>
 <body>
-  <div class="container">
-    <header>
-      <div class="brand">
-        <div class="brand-icon">⚡</div>
-        <div>
-          <h1>Rig Bridge Monitor</h1>
-          <div class="brand-meta">
-            <span class="pulse-dot"></span>
-            <span>Live on port ${port}</span>
-            <span>•</span>
-            <span id="uptime-label">Uptime: ...</span>
+  <div class="app-layout">
+    <!-- SIDEBAR -->
+    <aside class="sidebar">
+      <div class="sidebar-top">
+        <div class="brand">
+          <div class="brand-icon">⚡</div>
+          <div>
+            <h1>Rig Bridge Monitor</h1>
+            <div class="brand-meta">
+              <span class="pulse-dot"></span>
+              <span>Port ${port}</span>
+              <span>•</span>
+              <span id="uptime-label">Uptime: ...</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="controls">
+          <button id="toggle-refresh-btn" class="btn" style="flex: 1; justify-content: center;" onclick="toggleAutoRefresh()">Auto-refresh: ON</button>
+          <button class="btn" onclick="fetchStatus()">Refresh</button>
+        </div>
+
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-label">Workspaces</div>
+            <div id="stat-workspaces" class="stat-val">0</div>
+          </div>
+          <div id="stat-running-card" class="stat-card">
+            <div class="stat-label">Running</div>
+            <div id="stat-running" class="stat-val">0</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Version</div>
+            <div id="stat-version" class="stat-val" style="font-size: 15px; padding-top: 3px;">...</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Updated</div>
+            <div id="stat-updated" class="stat-val" style="font-size: 12px; color: var(--text-muted); padding-top: 4px;">just now</div>
           </div>
         </div>
       </div>
-      <div class="controls">
-        <button id="toggle-refresh-btn" class="btn" onclick="toggleAutoRefresh()">Auto-refresh: ON</button>
-        <button class="btn" onclick="fetchStatus()">Refresh Now</button>
-      </div>
-    </header>
 
-    <div class="stats-grid">
-      <div class="stat-card">
-        <div class="stat-label">Active Workspaces</div>
-        <div id="stat-workspaces" class="stat-val">0</div>
+      <div class="sidebar-section-header">
+        <span>Workspaces</span>
+        <span id="ws-count-badge" style="color: var(--accent);">0</span>
       </div>
-      <div id="stat-running-card" class="stat-card">
-        <div class="stat-label">Running Commands</div>
-        <div id="stat-running" class="stat-val">0</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">Server Version</div>
-        <div id="stat-version" class="stat-val" style="font-size: 20px; padding-top: 4px;">...</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">Last Updated</div>
-        <div id="stat-updated" class="stat-val" style="font-size: 16px; color: var(--text-muted); padding-top: 6px;">just now</div>
-      </div>
-    </div>
 
-    <div class="section-title">
-      <span>Workspaces & Activity</span>
-    </div>
+      <div id="workspaces-list" class="workspaces-scroll">
+        <div style="padding: 20px 10px; text-align: center; color: var(--text-dim); font-size: 12px;">
+          Loading workspaces...
+        </div>
+      </div>
+    </aside>
 
-    <div id="workspaces-container" class="workspaces-list">
+    <!-- MAIN CONTENT (Commands & Workspace Details) -->
+    <main class="main-content" id="main-content">
       <div class="empty-state">
-        <div class="empty-icon">⏳</div>
-        <div class="empty-title">Loading status...</div>
+        <div class="empty-icon">📂</div>
+        <div class="empty-title">Select a Workspace</div>
+        <div>Choose an open workspace from the sidebar to view its active and past commands.</div>
       </div>
-    </div>
+    </main>
   </div>
 
   <script>
     let autoRefresh = true;
     let refreshTimer = null;
-    let expandedWorkspaces = new Set();
+    let selectedWorkspaceId = null;
+    let currentStatus = null;
 
     function formatTimeAgo(ts) {
       if (!ts) return "never";
@@ -477,6 +609,21 @@ export function renderDashboardHtml(port: number): string {
         .replace(/'/g, "&#39;");
     }
 
+    function getBasename(path) {
+      if (!path) return "";
+      const trimmed = path.replace(/\\/+$/, "");
+      const idx = trimmed.lastIndexOf("/");
+      return idx >= 0 ? trimmed.slice(idx + 1) : trimmed;
+    }
+
+    function selectWorkspace(wsId) {
+      selectedWorkspaceId = wsId;
+      if (currentStatus) {
+        renderSidebarWorkspaces(currentStatus);
+        renderSelectedWorkspace(currentStatus);
+      }
+    }
+
     async function abortCommand(workspaceId, commandId) {
       if (!confirm("Are you sure you want to abort this running command?")) return;
       try {
@@ -495,17 +642,6 @@ export function renderDashboardHtml(port: number): string {
       }
     }
 
-    function toggleDetails(wsId) {
-      if (expandedWorkspaces.has(wsId)) {
-        expandedWorkspaces.delete(wsId);
-      } else {
-        expandedWorkspaces.add(wsId);
-      }
-      renderWorkspaces(currentStatus);
-    }
-
-    let currentStatus = null;
-
     async function fetchStatus() {
       try {
         const res = await fetch("/api/status");
@@ -522,6 +658,7 @@ export function renderDashboardHtml(port: number): string {
     function render(data) {
       document.getElementById("uptime-label").textContent = "Uptime: " + formatUptime(data.uptimeSeconds);
       document.getElementById("stat-workspaces").textContent = data.workspacesCount;
+      document.getElementById("ws-count-badge").textContent = data.workspacesCount;
       document.getElementById("stat-running").textContent = data.activeCommandsCount;
       document.getElementById("stat-version").textContent = "v" + data.version;
       document.getElementById("stat-updated").textContent = new Date().toLocaleTimeString();
@@ -535,109 +672,207 @@ export function renderDashboardHtml(port: number): string {
         document.getElementById("stat-running").classList.remove("running-val");
       }
 
-      renderWorkspaces(data);
+      // Automatically select first workspace if none or invalid
+      const wsList = data.workspaces || [];
+      const hasSelected = wsList.some(w => w.id === selectedWorkspaceId);
+      if (!hasSelected) {
+        // Prioritize workspace with running command, else first
+        const runningWs = wsList.find(w => w.activeCommands && w.activeCommands.length > 0);
+        selectedWorkspaceId = runningWs ? runningWs.id : (wsList[0] ? wsList[0].id : null);
+      }
+
+      renderSidebarWorkspaces(data);
+      renderSelectedWorkspace(data);
     }
 
-    function renderWorkspaces(data) {
-      const container = document.getElementById("workspaces-container");
-      if (!data || !data.workspaces || data.workspaces.length === 0) {
-        container.innerHTML = \`
-          <div class="empty-state">
-            <div class="empty-icon">📭</div>
-            <div class="empty-title">No Active Workspaces</div>
-            <div>When ChatGPT or another assistant calls <code>workspace_open</code>, its directory and active commands will be tracked here live.</div>
+    function renderSidebarWorkspaces(data) {
+      const list = document.getElementById("workspaces-list");
+      const workspaces = data.workspaces || [];
+
+      if (workspaces.length === 0) {
+        list.innerHTML = \`
+          <div style="padding: 24px 12px; text-align: center; color: var(--text-dim); font-size: 12px;">
+            No open workspaces.<br/>Assistants opening a directory will appear here.
           </div>\`;
         return;
       }
 
-      container.innerHTML = data.workspaces.map(ws => {
+      list.innerHTML = workspaces.map(ws => {
         const isRunning = ws.activeCommands && ws.activeCommands.length > 0;
-        const isExpanded = expandedWorkspaces.has(ws.id);
+        const isSelected = ws.id === selectedWorkspaceId;
+        const base = getBasename(ws.cwd);
 
-        let runningHtml = "";
-        if (isRunning) {
-          runningHtml = ws.activeCommands.map(cmd => {
-            const elapsedSec = (cmd.elapsedMs / 1000).toFixed(1);
-            return \`
-              <div class="running-box">
-                <div class="running-box-header">
-                  <span>⚡ EXECUTING: \${escapeHtml(cmd.tool)}</span>
-                  <div style="display: flex; align-items: center; gap: 8px;">
-                    <span class="running-timer">running for \${elapsedSec}s</span>
-                    <button class="btn btn-danger" style="padding: 2px 8px; font-size: 11px;" onclick="abortCommand('\${ws.id}', '\${cmd.id}')">Abort</button>
-                  </div>
+        return \`
+          <div class="ws-item \${isSelected ? 'selected' : ''} \${isRunning ? 'running' : ''}" onclick="selectWorkspace('\${ws.id}')">
+            <div class="ws-item-header">
+              <div class="ws-item-title">
+                <div class="ws-dot \${isRunning ? 'running' : ''}"></div>
+                <span>\${escapeHtml(base)}</span>
+              </div>
+              <div>
+                \${isRunning 
+                  ? \`<span class="badge badge-running">⚡ \${ws.activeCommands.length} RUNNING</span>\`
+                  : \`<span class="badge badge-idle">IDLE</span>\`
+                }
+              </div>
+            </div>
+            <div class="ws-item-path" title="\${escapeHtml(ws.cwd)}">\${escapeHtml(ws.cwd)}</div>
+            <div class="ws-item-meta">
+              <span>\${formatTimeAgo(ws.lastUsed)}</span>
+              <span class="badge badge-id">\${escapeHtml(ws.id.slice(0, 8))}</span>
+            </div>
+          </div>\`;
+      }).join("");
+    }
+
+    function renderSelectedWorkspace(data) {
+      const container = document.getElementById("main-content");
+      const workspaces = data.workspaces || [];
+      const ws = workspaces.find(w => w.id === selectedWorkspaceId);
+
+      if (!ws) {
+        container.innerHTML = \`
+          <div class="empty-state">
+            <div class="empty-icon">📭</div>
+            <div class="empty-title">No Workspace Selected</div>
+            <div>Select a workspace on the left sidebar to view its live commands.</div>
+          </div>\`;
+        return;
+      }
+
+      const isRunning = ws.activeCommands && ws.activeCommands.length > 0;
+
+      // Active commands HTML
+      let activeSection = "";
+      if (isRunning) {
+        const activeBoxes = ws.activeCommands.map(cmd => {
+          const elapsedSec = (cmd.elapsedMs / 1000).toFixed(1);
+          return \`
+            <div class="running-box">
+              <div class="running-box-header">
+                <span>⚡ EXECUTING: \${escapeHtml(cmd.tool)}</span>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <span class="running-timer">running for \${elapsedSec}s</span>
+                  <button class="btn btn-danger" style="padding: 3px 10px; font-size: 11px;" onclick="abortCommand('\${ws.id}', '\${cmd.id}')">Abort Command</button>
                 </div>
-                <div class="running-command-desc">\${escapeHtml(cmd.description)}</div>
-              </div>\`;
-          }).join("");
-        }
+              </div>
+              <div class="running-command-desc">\${escapeHtml(cmd.description)}</div>
+            </div>\`;
+        }).join("");
 
-        let lastCmdHtml = "";
-        if (ws.lastCommand) {
-          const pillClass = ws.lastCommand.success ? "pill-success" : "pill-fail";
-          const pillText = ws.lastCommand.success ? "✓ Success" : "✗ Error";
-          lastCmdHtml = \`
-            <div class="last-command">
-              <div class="last-cmd-title">Last command</div>
-              <div class="last-cmd-content">
+        activeSection = \`
+          <div>
+            <div class="section-title">
+              <span>⚡ Currently Running Commands (\${ws.activeCommands.length})</span>
+            </div>
+            \${activeBoxes}
+          </div>\`;
+      }
+
+      // Last command HTML
+      let lastCmdSection = "";
+      if (ws.lastCommand) {
+        const pillClass = ws.lastCommand.success ? "pill-success" : "pill-fail";
+        const pillText = ws.lastCommand.success ? "✓ Success" : "✗ Error";
+        lastCmdSection = \`
+          <div>
+            <div class="section-title">
+              <span>Last Completed Command</span>
+            </div>
+            <div class="last-command-card">
+              <div class="last-cmd-header">
+                <span>\${formatTimeAgo(ws.lastCommand.completedAt)} (\${formatDuration(ws.lastCommand.durationMs)})</span>
                 <span class="status-pill \${pillClass}">\${pillText}</span>
+              </div>
+              <div class="last-cmd-content">
                 <strong>\${escapeHtml(ws.lastCommand.tool)}</strong>
                 <span>\${escapeHtml(ws.lastCommand.description)}</span>
               </div>
-              <div style="color: var(--text-dim); font-size: 11px;">
-                \${formatTimeAgo(ws.lastCommand.completedAt)} (\${formatDuration(ws.lastCommand.durationMs)})
-              </div>
-            </div>\`;
-        }
-
-        let recentHtml = "";
-        if (isExpanded && ws.recentCommands && ws.recentCommands.length > 0) {
-          recentHtml = \`
-            <div class="recent-list">
-              \${ws.recentCommands.map(c => \`
-                <div class="recent-item">
-                  <div style="display: flex; align-items: center; gap: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                    <span class="status-pill \${c.success ? 'pill-success' : 'pill-fail'}">\${c.success ? 'OK' : 'ERR'}</span>
-                    <strong>\${escapeHtml(c.tool)}</strong>
-                    <span style="color: var(--text-muted);">\${escapeHtml(c.description)}</span>
-                  </div>
-                  <div style="color: var(--text-dim); white-space: nowrap; font-size: 11px;">
-                    \${formatTimeAgo(c.completedAt)} (\${formatDuration(c.durationMs)})
-                  </div>
-                </div>\`).join("")}
-            </div>\`;
-        }
-
-        return \`
-          <div class="workspace-card \${isRunning ? 'running' : ''}">
-            <div class="ws-header">
-              <div class="ws-path-wrapper">
-                <div class="ws-dot \${isRunning ? 'running' : ''}"></div>
-                <span class="ws-path">\${escapeHtml(ws.cwd)}</span>
-              </div>
-              <div class="ws-badges">
-                <span class="badge \${isRunning ? 'badge-running' : 'badge-idle'}">\${isRunning ? 'Running Command' : 'Idle'}</span>
-                <span class="badge badge-id" title="Workspace ID">\${escapeHtml(ws.id.slice(0, 8))}...</span>
-              </div>
+              \${ws.lastCommand.error ? \`
+                <div style="font-family: monospace; font-size: 11px; color: #fca5a5; background: rgba(239, 68, 68, 0.1); padding: 6px 10px; border-radius: 4px; margin-top: 4px;">
+                  \${escapeHtml(ws.lastCommand.error)}
+                </div>
+              \` : ''}
             </div>
+          </div>\`;
+      }
 
-            <div class="ws-meta">
+      // Recent history table
+      let recentSection = "";
+      if (ws.recentCommands && ws.recentCommands.length > 0) {
+        const rows = ws.recentCommands.map(c => \`
+          <tr>
+            <td style="width: 70px;">
+              <span class="status-pill \${c.success ? 'pill-success' : 'pill-fail'}">\${c.success ? 'OK' : 'ERR'}</span>
+            </td>
+            <td style="width: 90px; font-weight: 700; color: var(--accent);">\${escapeHtml(c.tool)}</td>
+            <td style="color: var(--text); word-break: break-all;">
+              \${escapeHtml(c.description)}
+              \${c.error ? \`<div style="color: #fca5a5; font-size: 11px; margin-top: 2px;">\${escapeHtml(c.error)}</div>\` : ''}
+            </td>
+            <td style="width: 80px; text-align: right; color: var(--text-dim);">\${formatDuration(c.durationMs)}</td>
+            <td style="width: 90px; text-align: right; color: var(--text-dim);">\${formatTimeAgo(c.completedAt)}</td>
+          </tr>
+        \`).join("");
+
+        recentSection = \`
+          <div>
+            <div class="section-title">
+              <span>Recent Activity (\${ws.recentCommands.length})</span>
+            </div>
+            <div class="recent-table-wrap">
+              <table class="recent-table">
+                <thead>
+                  <tr>
+                    <th>Status</th>
+                    <th>Tool</th>
+                    <th>Command / Action</th>
+                    <th style="text-align: right;">Duration</th>
+                    <th style="text-align: right;">Time</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  \${rows}
+                </tbody>
+              </table>
+            </div>
+          </div>\`;
+      } else if (!isRunning && !ws.lastCommand) {
+        recentSection = \`
+          <div class="empty-state" style="padding: 30px 20px;">
+            <div style="font-size: 24px; margin-bottom: 6px;">☕</div>
+            <div style="font-size: 14px; font-weight: 600; color: var(--text-muted);">No commands executed yet</div>
+            <div style="font-size: 12px; color: var(--text-dim); margin-top: 4px;">Commands initiated by the AI assistant in this workspace will appear here.</div>
+          </div>\`;
+      }
+
+      container.innerHTML = \`
+        <div class="main-header">
+          <div class="main-title-wrap">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <div class="ws-dot \${isRunning ? 'running' : ''}"></div>
+              <div class="main-ws-path">\${escapeHtml(ws.cwd)}</div>
+            </div>
+            <div class="main-ws-meta">
+              <span>ID: <code style="color: var(--text-dim);">\${escapeHtml(ws.id)}</code></span>
+              <span>•</span>
               <span>Opened \${formatTimeAgo(ws.createdAt)}</span>
               <span>•</span>
               <span>Last active \${formatTimeAgo(ws.lastUsed)}</span>
             </div>
+          </div>
+          <div>
+            \${isRunning 
+              ? \`<span class="badge badge-running" style="font-size: 11px; padding: 4px 10px;">⚡ \${ws.activeCommands.length} RUNNING COMMAND(S)</span>\`
+              : \`<span class="badge badge-idle" style="font-size: 11px; padding: 4px 10px;">IDLE</span>\`
+            }
+          </div>
+        </div>
 
-            \${runningHtml}
-            \${lastCmdHtml}
-
-            \${ws.recentCommands && ws.recentCommands.length > 0 ? \`
-              <button class="details-toggle" onclick="toggleDetails('\${ws.id}')">
-                \${isExpanded ? '▼ Hide recent commands' : '▶ View recent commands (' + ws.recentCommands.length + ')'}
-              </button>
-              \${recentHtml}
-            \` : ''}
-          </div>\`;
-      }).join("");
+        \${activeSection}
+        \${lastCmdSection}
+        \${recentSection}
+      \`;
     }
 
     function toggleAutoRefresh() {
