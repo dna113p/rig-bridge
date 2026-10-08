@@ -45,11 +45,11 @@ export async function httpClient(url: string, authorization?: string) {
   await client.connect(new StreamableHTTPClientTransport(new URL(url), { requestInit: { headers: authorization ? { authorization } : {} } }));
   return client;
 }
-export async function http(state: string) {
+export async function http(state: string, options: ConstructorParameters<typeof Bridge>[1] = {}) {
   await mkdir(state, { recursive: true });
   const tokenFile = join(state, "http-authorization"), authorization = `Bearer ${randomBytes(32).toString("base64url")}`;
   await writeFile(tokenFile, authorization, { mode: 0o600 });
-  const bridge = new Bridge(state);
+  const bridge = new Bridge(state, options);
   const server = await serveHttp(bridge, { port: 0, tokenFile });
   return { ...server, tokenFile, authorization, close: async () => { await bridge.close(); await server.close(); } };
 }

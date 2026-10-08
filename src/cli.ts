@@ -32,7 +32,7 @@ if (values.help) {
 
 Commands:
   serve   Run authenticated HTTP bridge and dashboard viewer (default port: 8767)
-  status  Display active workspaces, running commands, and recent activity
+  status  Display project workspaces, threads, handoffs, and running commands
 `);
 } else if (positionals[0] === "status") {
   const port = Number(values.port);
@@ -79,34 +79,34 @@ Commands:
     }
 
     const runningHighlight = data.activeCommandsCount > 0 ? "\x1b[1;33m" : "\x1b[1;32m";
-    console.log(`\x1b[1m⚡ Rig Bridge v${data.version}\x1b[0m • Uptime: ${Math.floor(data.uptimeSeconds / 60)}m ${data.uptimeSeconds % 60}s • ${runningHighlight}${data.activeCommandsCount} Running Command(s)\x1b[0m • ${data.workspacesCount} Workspace(s)`);
+    console.log(`\x1b[1m⚡ Rig Bridge v${data.version}\x1b[0m • Uptime: ${Math.floor(data.uptimeSeconds / 60)}m ${data.uptimeSeconds % 60}s • ${runningHighlight}${data.activeCommandsCount} Running Command(s)\x1b[0m • ${data.projectsCount} Workspace(s) • ${data.unreadCount} Unread handoff(s)`);
     console.log(`\x1b[90mWeb Dashboard: http://127.0.0.1:${port}/\x1b[0m\n`);
 
-    if (data.workspaces.length === 0) {
+    if (data.projects.length === 0) {
       console.log(`\x1b[90mNo active workspaces. When an assistant calls workspace_open, it will appear here.\x1b[0m\n`);
       return;
     }
 
-    for (const ws of data.workspaces) {
-      const isRunning = ws.activeCommands.length > 0;
-      const dot = isRunning ? "\x1b[1;33m●\x1b[0m" : "\x1b[90m○\x1b[0m";
-      const statusText = isRunning ? "\x1b[1;33mRUNNING\x1b[0m" : "\x1b[90mIDLE\x1b[0m";
-      console.log(`${dot} \x1b[1;36m${ws.cwd}\x1b[0m \x1b[90m[${ws.id.slice(0, 8)}]\x1b[0m - ${statusText} (last active ${formatTimeAgo(ws.lastUsed)})`);
-
-      if (isRunning) {
-        for (const cmd of ws.activeCommands) {
-          const sec = (cmd.elapsedMs / 1000).toFixed(1);
-          console.log(`    \x1b[1;33m▶ [${cmd.tool}]\x1b[0m ${cmd.description} \x1b[33m(running for ${sec}s)\x1b[0m`);
+    for (const project of data.projects) {
+      const unread = data.notifications.filter(n => n.projectId === project.id && !n.readAt).length;
+      console.log(`\x1b[1;36m${project.name}\x1b[0m • ${project.threads.length} Thread(s) • ${unread} Unread handoff(s)`);
+      console.log(`\x1b[90m${project.root} [${project.id.slice(0, 8)}]\x1b[0m`);
+      for (const thread of project.threads) {
+        const ws = data.workspaces.find(w => w.threadId === thread.id);
+        const isRunning = !!ws?.activeCommands.length;
+        const state = isRunning ? "WORKING" : thread.run?.status === "working" ? "IDLE · AWAITING HANDOFF"
+          : thread.run?.status === "interrupted" ? "INTERRUPTED · STATUS UNKNOWN"
+          : thread.run ? `YOUR TURN · ${thread.run.status.replaceAll("_", " ").toUpperCase()}` : "IDLE";
+        console.log(`  ${isRunning ? "▶" : "○"} ${thread.title} [${thread.id.slice(0, 8)}] • ${state} (${formatTimeAgo(thread.lastUsed)})`);
+        console.log(`    Checkout: ${thread.cwd}${ws ? "" : " • Saved; resume through MCP"}`);
+        for (const cmd of ws?.activeCommands ?? []) {
+          console.log(`    ▶ [${cmd.tool}] ${cmd.description} (running for ${(cmd.elapsedMs / 1000).toFixed(1)}s)`);
         }
-      }
-
-      if (ws.lastCommand) {
-        const mark = ws.lastCommand.success ? "\x1b[32m✓\x1b[0m" : "\x1b[31m✗\x1b[0m";
-        const dur = formatDuration(ws.lastCommand.durationMs);
-        const when = formatTimeAgo(ws.lastCommand.completedAt);
-        console.log(`    Last: ${mark} \x1b[90m[${ws.lastCommand.tool}]\x1b[0m ${ws.lastCommand.description} \x1b[90m(${when}, took ${dur})\x1b[0m`);
-        if (ws.lastCommand.error) {
-          console.log(`          \x1b[31mError: ${ws.lastCommand.error}\x1b[0m`);
+        if (thread.run?.summary) console.log(`    Handoff: ${thread.run.summary}`);
+        if (ws?.lastCommand) {
+          const last = ws.lastCommand;
+          console.log(`    Last: ${last.success ? "✓" : "✗"} [${last.tool}] ${last.description} (${formatTimeAgo(last.completedAt)}, took ${formatDuration(last.durationMs)})`);
+          if (last.error) console.log(`    Error: ${last.error}`);
         }
       }
       console.log("");

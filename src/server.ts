@@ -9,6 +9,8 @@ import { orientation } from "./context.ts";
 import { resolveInput } from "./files.ts";
 import { Journal } from "./journal.ts";
 import { executeTool } from "./tools.ts";
+import { WorkStore, discoverProject } from "./work.ts";
+import { notifyDesktop, type DesktopNotification } from "./notifications.ts";
 
 export interface CommandRecord {
   id: string;
@@ -50,6 +52,8 @@ export function summarizeToolCall(tool: string, args: any): string {
 
 export interface WorkspaceStatusView {
   id: string;
+  projectId: string;
+  threadId: string;
   cwd: string;
   createdAt: number;
   lastUsed: number;
@@ -87,10 +91,16 @@ export interface BridgeStatusView {
   workspacesCount: number;
   activeCommandsCount: number;
   workspaces: WorkspaceStatusView[];
+  projects: ReturnType<WorkStore["list"]>;
+  projectsCount: number;
+  notifications: ReturnType<WorkStore["inbox"]>;
+  unreadCount: number;
 }
 
 interface Workspace {
   id: string;
+  projectId: string;
+  threadId: string;
   cwd: string;
   createdAt: number;
   active: Map<AbortController, { command: CommandRecord; promise: Promise<CallToolResult> }>;
@@ -99,10 +109,15 @@ interface Workspace {
   lastUsed: number;
 }
 
-/** One owner, one computer. Workspaces are directory records, not agent sessions. */
+/** Persistent project workspaces contain threads; legacy workspace IDs are execution handles. */
 export class Bridge {
   private workspaces = new Map<string, Workspace>();
+  private queuedByHandle = new Map<string, number>();
   private journal: Journal;
+  private work: WorkStore;
+  private desktopNotify: (notification: DesktopNotification) => Promise<void>;
+  private delivery?: Promise<void>;
+  private dashboardUrl = "http://127.0.0.1:8767/";
   private pending = new Set<Promise<CallToolResult>>();
   private opening = 0;
   private shutdown?: Promise<void>;
@@ -110,15 +125,17 @@ export class Bridge {
   private stateDirectory: string;
   private startedAt = Date.now();
 
-  constructor(stateDirectory: string) {
+  constructor(stateDirectory: string, options: { notifyDesktop?: (notification: DesktopNotification) => Promise<void> } = {}) {
     this.stateDirectory = stateDirectory;
     this.journal = new Journal(stateDirectory, "owner");
+    this.work = new WorkStore(stateDirectory);
+    this.desktopNotify = options.notifyDesktop ?? notifyDesktop;
   }
 
   createServer() {
     const server = new Server({ name: "rig-bridge", version: "0.1.2" }, {
       capabilities: { tools: {} },
-      instructions: "Keep reasoning and context in the calling assistant. Open a workspace for each project, omitting cwd for the account home. Save its workspace_id and read returned instruction/skill files before working. All seven execution tools use Pi directly without an agent/model session. Workspaces only select a working directory: absolute paths and ../ are allowed for reads, writes, and commands under normal account permissions. Multiple conversations can use separate workspaces concurrently; files are shared. read returns the revision required by write/edit; use 'missing' when creating a file. Every write/edit/bash needs a request_key unique within its workspace. Reuse it only with identical arguments to retrieve a previous result or durable receipt, even after restart/closure. Never blindly rerun an uncertain operation with a new key. Close unused workspaces to cancel their active calls. HTTP reconnection preserves workspace handles, but a server restart requires opening new ones. Shell stdin is closed; cd affects only that command. Authentication and elevation use existing local mechanisms.",
+      instructions: "Keep reasoning and conversation in the calling assistant. workspace_open opens a checkout in a persistent project workspace and returns workspace_id (temporary execution handle), project_id and thread_id. Save these and read returned project instructions/skills. Give each conversation its own named thread using title; resume with thread_id, including after restart. workspace_list finds saved threads. Git worktrees group into the same project; files may still be shared. REQUIRED: immediately before each final reply returning control to the user, call work_handoff with workspace_id, a fresh request_key, reason (completed, needs_input, blocked, failed or cancelled), and a short summary. Wait for this thread's tool calls to finish. This signals an imminent handoff, not confirmation of a displayed final reply. Keep the thread open for follow-up. A new run starts on the next execution call, or use run_start to name it. All execution tools use Pi directly without another model session. Absolute paths and ../ are allowed under normal account permissions; checkout directories are not sandboxes. read returns the revision required by write/edit; use 'missing' when creating a file. Every write/edit/bash/run_start/work_handoff needs a request_key unique within its workspace handle; retry only with identical arguments and key. Never blindly rerun uncertain operations with a new key. workspace_close cancels only that handle's active calls and preserves its saved thread. HTTP reconnection preserves handles; restart requires opening new handles. Shell stdin is closed; cd affects only that command. Authentication and elevation use existing local mechanisms.",
     });
     server.setRequestHandler(ListToolsRequestSchema, () => ({ tools: catalog }));
     server.setRequestHandler(CallToolRequestSchema, (request, extra) => this.call(request.params.name, request.params.arguments ?? {}, extra.signal));
@@ -136,12 +153,31 @@ export class Bridge {
     validate(name, args);
     if (this.stopping) throw new BridgeError("BRIDGE_STOPPED", "Server is stopping");
     signal?.throwIfAborted();
-    if (name === "workspace_open") return this.open(args.cwd, signal);
+    if (name === "workspace_open") return this.open(args, signal);
+    if (name === "workspace_list") return result("Saved project workspaces and threads.", { projects: this.work.list(), handles: this.getStatus().workspaces });
     if (name === "workspace_close") return this.closeWorkspace(args.workspace_id);
+    if (name === "run_start" || name === "work_handoff") {
+      const { workspace_id, request_key, ...input } = args;
+      const replay = this.work.replay(workspace_id, request_key, { tool: name, ...input });
+      if (replay) return result("Previously recorded; no duplicate notification was sent.", replay);
+      try {
+        this.journal.inspect(canonical([workspace_id, request_key]));
+        throw new BridgeError("REQUEST_KEY_CONFLICT", "Request key was already used by an execution tool");
+      } catch (error) { if (!(error instanceof BridgeError) || error.code !== "RECEIPT_NOT_FOUND") throw error; }
+      const workspace = this.workspaces.get(workspace_id);
+      if (!workspace || workspace.closing) throw new BridgeError("WORKSPACE_EXPIRED", "Open a workspace and use its new workspace_id");
+      if (workspace.active.size || this.queuedByHandle.get(workspace_id)) throw new BridgeError("WORK_ACTIVE", "Wait for this thread's active tool calls before starting or handing off a run");
+      const data = name === "run_start" ? this.work.start(workspace_id, request_key, input) : this.work.handoff(workspace_id, request_key, input as any);
+      workspace.lastUsed = Date.now();
+      if (name === "work_handoff") this.deliverNotifications();
+      return result(name === "run_start" ? "Run started." : "Handoff recorded. Return control to the user now; keep this thread for follow-up.", data);
+    }
+    if (receiptTools.has(name) && this.work.hasControlRequest(args.workspace_id, args.request_key)) throw new BridgeError("REQUEST_KEY_CONFLICT", "Request key was already used by a run or handoff tool");
     const operation = async () => {
       const workspace = this.workspaces.get(args.workspace_id);
       if (!workspace || workspace.closing) return failure(new BridgeError("WORKSPACE_EXPIRED", "Open a workspace and use its new workspace_id"));
       workspace.lastUsed = Date.now();
+      const run = this.work.activity(workspace.threadId);
       const controller = new AbortController();
       const combined = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
 
@@ -163,7 +199,7 @@ export class Bridge {
         const value = failure(error);
         if (receiptTools.has(name)) value.structuredContent = { ...value.structuredContent, effects_may_have_occurred: true };
         return value;
-      }).then(value => ({ ...value, structuredContent: { ...value.structuredContent, workspace_id: args.workspace_id, cwd: workspace.cwd } }));
+      }).then(value => ({ ...value, structuredContent: { ...value.structuredContent, workspace_id: args.workspace_id, project_id: workspace.projectId, thread_id: workspace.threadId, run_id: run.id, cwd: workspace.cwd } }));
 
       workspace.active.set(controller, { command: commandRecord, promise: pending });
       try {
@@ -190,37 +226,110 @@ export class Bridge {
       }
     };
     // Consult receipts before workspace lookup so retries survive closed/expired handles.
-    return receiptTools.has(name)
+    // Receipt dispatch is deferred to a microtask. Protect that queued call as well as running calls.
+    const handleId = args.workspace_id;
+    this.queuedByHandle.set(handleId, (this.queuedByHandle.get(handleId) ?? 0) + 1);
+    const execution = receiptTools.has(name)
       ? this.journal.execute(canonical([args.workspace_id, args.request_key]), { tool: name, ...args }, operation)
       : operation();
+    return execution.finally(() => {
+      const count = (this.queuedByHandle.get(handleId) ?? 1) - 1;
+      if (count) this.queuedByHandle.set(handleId, count); else this.queuedByHandle.delete(handleId);
+    });
   }
 
-  private async open(input?: string, signal?: AbortSignal): Promise<CallToolResult> {
+  private async open(args: Record<string, any>, signal?: AbortSignal): Promise<CallToolResult> {
     signal?.throwIfAborted();
     this.opening++;
     try {
-      const cwd = await realpath(resolveInput(input ?? homedir(), homedir()));
+      const savedThread = args.thread_id ? this.work.thread(args.thread_id) : undefined;
+      const closing = savedThread ? [...this.workspaces.values()].find(ws => ws.threadId === savedThread.id && ws.closing) : undefined;
+      if (closing) await closing.closing;
+      signal?.throwIfAborted();
+      const cwd = await realpath(resolveInput(args.cwd ?? savedThread?.cwd ?? homedir(), homedir()));
       if (!(await stat(cwd)).isDirectory()) throw new BridgeError("INVALID_WORKSPACE", "cwd must be a directory");
+      const identity = await discoverProject(cwd, args.project_root ? resolveInput(args.project_root, cwd) : undefined);
+      const project = this.work.openProject(identity, args.project_id ?? savedThread?.projectId);
+      if (savedThread && (savedThread.cwd !== cwd || savedThread.projectId !== project.id)) throw new BridgeError("THREAD_CONFLICT", "A resumed thread must use its saved project and cwd");
+      // Resuming intentionally reuses this thread's live handle, never another conversation's handle.
+      const existing = savedThread ? [...this.workspaces.values()].find(ws => ws.threadId === savedThread.id && !ws.closing) : undefined;
+      let context: Awaited<ReturnType<typeof orientation>> | undefined;
+      if (existing) {
+        context = await orientation(cwd);
+        signal?.throwIfAborted();
+        if (this.stopping) throw new BridgeError("BRIDGE_STOPPED", "Server is stopping");
+        if (this.workspaces.get(existing.id) === existing && !existing.closing) {
+          this.work.openThread(project, cwd, args.title, savedThread!.id);
+          existing.lastUsed = Date.now();
+          return this.openResult(existing, context);
+        }
+      }
       while (this.workspaces.size + this.opening > 64) {
         const idle = [...this.workspaces.entries()]
-          .filter(([, ws]) => !ws.active.size && !ws.closing)
+          .filter(([, ws]) => !ws.active.size && !ws.closing && !this.queuedByHandle.get(ws.id))
           .sort(([, a], [, b]) => a.lastUsed - b.lastUsed)[0];
         if (!idle) throw new BridgeError("WORKSPACE_LIMIT", "Close unused workspaces; at most 64 can be open");
         await this.closeWorkspace(idle[0]);
         signal?.throwIfAborted();
       }
-      const context = await orientation(cwd);
+      context ??= await orientation(cwd);
       signal?.throwIfAborted();
       if (this.stopping) throw new BridgeError("BRIDGE_STOPPED", "Server is stopping");
       const id = randomUUID();
       const now = Date.now();
-      this.workspaces.set(id, { id, cwd, createdAt: now, active: new Map(), recentCommands: [], lastUsed: now });
-      const sections = [`Workspace ready: ${cwd}.`];
-      if (context.project_context) sections.push(context.project_context);
-      if (context.skills_prompt) sections.push(context.skills_prompt);
-      const text = sections.join("\n\n");
-      return result(text, { workspace_id: id, ...context, pi: "0.85.1", models_for_tools: false });
+      // Recheck after asynchronous context discovery: simultaneous resumes must share one handle.
+      const resumed = savedThread ? [...this.workspaces.values()].find(ws => ws.threadId === savedThread.id && !ws.closing) : undefined;
+      if (resumed) {
+        this.work.openThread(project, cwd, args.title, savedThread!.id);
+        resumed.lastUsed = now;
+        return this.openResult(resumed, context);
+      }
+      const closingAfterContext = savedThread ? [...this.workspaces.values()].find(ws => ws.threadId === savedThread.id && ws.closing) : undefined;
+      if (closingAfterContext) await closingAfterContext.closing;
+      signal?.throwIfAborted();
+      if (this.stopping) throw new BridgeError("BRIDGE_STOPPED", "Server is stopping");
+      const reopened = savedThread ? [...this.workspaces.values()].find(ws => ws.threadId === savedThread.id && !ws.closing) : undefined;
+      if (reopened) {
+        this.work.openThread(project, cwd, args.title, savedThread!.id);
+        reopened.lastUsed = Date.now();
+        return this.openResult(reopened, context);
+      }
+      const thread = this.work.openThread(project, cwd, args.title, savedThread?.id);
+      const workspace: Workspace = { id, projectId: project.id, threadId: thread.id, cwd, createdAt: now, active: new Map(), recentCommands: [], lastUsed: now };
+      this.work.attach(id, thread.id);
+      this.workspaces.set(id, workspace);
+      return this.openResult(workspace, context);
     } finally { this.opening--; }
+  }
+
+  private openResult(workspace: Workspace, context: Awaited<ReturnType<typeof orientation>>) {
+    const project = this.work.project(workspace.projectId), thread = this.work.thread(workspace.threadId);
+    const sections = [`Workspace ready: ${project.name}. Thread: ${thread.title}. Checkout: ${workspace.cwd}.`,
+      "Before your final reply returning control to the user, call work_handoff with this workspace_id, a fresh request_key, reason and summary. Keep the thread open for follow-up. For later work with no execution tools, start a new run with run_start before handing off again."];
+    if (context.project_context) sections.push(context.project_context);
+    if (context.skills_prompt) sections.push(context.skills_prompt);
+    return result(sections.join("\n\n"), { workspace_id: workspace.id, project_id: project.id, thread_id: thread.id, project, thread, ...context, pi: "0.85.1", models_for_tools: false });
+  }
+
+  setDashboardUrl(url: string) { this.dashboardUrl = url; this.deliverNotifications(); }
+
+  acknowledgeHandoff(id: string) { this.work.acknowledge(id); }
+  setProjectPreferences(id: string, desktopNotifications: boolean) { this.work.preferences(id, desktopNotifications); }
+
+  private deliverNotifications() {
+    if (this.delivery || this.stopping) return;
+    this.delivery = (async () => {
+      for (let event = this.work.claimDelivery(); event; event = this.work.claimDelivery()) {
+        const project = this.work.project(event.projectId), thread = this.work.thread(event.threadId);
+        try {
+          await this.desktopNotify({ title: `${project.name} · Your turn`, body: `${thread.title}: ${event.summary}`, url: `${this.dashboardUrl}#thread=${event.threadId}` });
+          this.work.delivered(event.id);
+        } catch (error) { this.work.delivered(event.id, error instanceof Error ? error.message : String(error)); }
+      }
+    })().finally(() => {
+      this.delivery = undefined;
+      if (!this.stopping && this.work.hasPendingDelivery()) this.deliverNotifications();
+    });
   }
 
   closeWorkspace(id: string): Promise<CallToolResult> {
@@ -229,6 +338,7 @@ export class Bridge {
     return workspace.closing ??= (async () => {
       for (const controller of workspace.active.keys()) controller.abort();
       await Promise.allSettled([...workspace.active.values()].map(e => e.promise));
+      this.work.interrupt(workspace.threadId);
       this.workspaces.delete(id);
       return result("Workspace closed. Active calls stopped; existing effects are not undone.", { workspace_id: id, cwd: workspace.cwd, closed: true });
     })();
@@ -283,6 +393,8 @@ export class Bridge {
 
       workspaces.push({
         id,
+        projectId: ws.projectId,
+        threadId: ws.threadId,
         cwd: ws.cwd,
         createdAt: ws.createdAt,
         lastUsed: ws.lastUsed,
@@ -299,6 +411,7 @@ export class Bridge {
       return b.lastUsed - a.lastUsed;
     });
 
+    const projects = this.work.list(), notifications = this.work.inbox();
     return {
       version: "0.1.2",
       startedAt: this.startedAt,
@@ -306,6 +419,10 @@ export class Bridge {
       workspacesCount: this.workspaces.size,
       activeCommandsCount: totalActive,
       workspaces,
+      projects,
+      projectsCount: projects.length,
+      notifications,
+      unreadCount: notifications.filter(n => !n.readAt).length,
     };
   }
 
@@ -314,6 +431,8 @@ export class Bridge {
       this.stopping = true;
       await Promise.all([...this.workspaces.keys()].map(id => this.closeWorkspace(id)));
       await Promise.allSettled(this.pending);
+      await this.delivery;
+      this.work.close();
       this.journal.close();
     })();
   }

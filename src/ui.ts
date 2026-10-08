@@ -1,3 +1,7 @@
+import { readFileSync } from "node:fs";
+
+const dashboardScript = readFileSync(new URL("./dashboard.js", import.meta.url), "utf8");
+
 export function renderDashboardHtml(port: number): string {
   return `<!doctype html>
 <html lang="en">
@@ -497,6 +501,23 @@ export function renderDashboardHtml(port: number): string {
         padding: 20px;
       }
     }
+    .project-select, .thread-select, .handoff-card { display: block; width: 100%; text-align: left; background: transparent; border: 0; color: var(--text); cursor: pointer; font: inherit; }
+    .project-select { padding: 0; }
+    .thread-select { padding: 10px 12px; margin-top: 8px; border-left: 2px solid var(--card-border); border-radius: 4px; }
+    .thread-select.selected, .thread-select:hover { background: rgba(56,189,248,.08); border-color: var(--accent); }
+    .thread-select strong, .thread-select span { display: block; overflow-wrap: anywhere; }
+    .thread-select span { font-size: 11px; color: var(--text-muted); margin-top: 5px; }
+    .notification-controls { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 24px; }
+    .thread-detail { padding: 20px; border: 1px solid var(--card-border); border-radius: 8px; margin-bottom: 24px; }
+    .handoff-card { padding: 18px; border: 1px solid var(--card-border); border-radius: 8px; margin-bottom: 12px; }
+    .handoff-card.unread { border-left: 3px solid var(--accent); background: rgba(56,189,248,.04); }
+    .handoff-card:hover { border-color: var(--accent); }
+    .handoff-outcome { color: var(--accent); font-size: 13px; font-weight: 600; margin: 8px 0; }
+    .handoff-summary { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; line-height: 1.6; }
+    .delivery-error { color: #fca5a5; font-size: 12px; margin-top: 8px; overflow-wrap: anywhere; }
+    .main-ws-meta { overflow-wrap: anywhere; }
+    button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+    @media (max-width: 700px) { html, body { overflow: auto; } .app-layout { flex-direction: column; height: auto; min-height: 100vh; overflow: visible; } .sidebar { width: 100%; max-width: none; min-width: 0; height: auto; max-height: 45vh; } .sidebar-top { padding: 16px; } .main-content { padding: 20px; overflow: visible; } .last-cmd-header { flex-wrap: wrap; gap: 8px; } }
   </style>
 </head>
 <body>
@@ -542,6 +563,7 @@ export function renderDashboardHtml(port: number): string {
         </div>
       </div>
 
+      <div style="padding: 12px 20px;"><button id="inbox-btn" class="btn" style="width: 100%; justify-content: center;" onclick="showInbox()">Your turn · Inbox (0)</button></div>
       <div class="sidebar-section-header">
         <span>Workspaces</span>
         <span id="ws-count-badge" style="color: var(--accent);">0</span>
@@ -559,343 +581,12 @@ export function renderDashboardHtml(port: number): string {
       <div class="empty-state">
         <div class="empty-icon">📂</div>
         <div class="empty-title">Select a Workspace</div>
-        <div>Choose an open workspace from the sidebar to view its active and past commands.</div>
+        <div>Choose a project workspace to view its threads and handoffs.</div>
       </div>
     </main>
   </div>
 
-  <script>
-    let autoRefresh = true;
-    let refreshTimer = null;
-    let selectedWorkspaceId = null;
-    let currentStatus = null;
-
-    function formatTimeAgo(ts) {
-      if (!ts) return "never";
-      const seconds = Math.max(0, Math.floor((Date.now() - ts) / 1000));
-      if (seconds < 5) return "just now";
-      if (seconds < 60) return seconds + "s ago";
-      const minutes = Math.floor(seconds / 60);
-      if (minutes < 60) return minutes + "m ago";
-      const hours = Math.floor(minutes / 60);
-      if (hours < 24) return hours + "h " + (minutes % 60) + "m ago";
-      return Math.floor(hours / 24) + "d ago";
-    }
-
-    function formatDuration(ms) {
-      if (!ms && ms !== 0) return "";
-      if (ms < 1000) return ms + "ms";
-      return (ms / 1000).toFixed(1) + "s";
-    }
-
-    function formatUptime(seconds) {
-      if (!seconds) return "0s";
-      const m = Math.floor(seconds / 60);
-      const h = Math.floor(m / 60);
-      const d = Math.floor(h / 24);
-      if (d > 0) return d + "d " + (h % 24) + "h";
-      if (h > 0) return h + "h " + (m % 60) + "m";
-      if (m > 0) return m + "m " + (seconds % 60) + "s";
-      return seconds + "s";
-    }
-
-    function escapeHtml(str) {
-      if (!str) return "";
-      return String(str)
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#39;");
-    }
-
-    function getBasename(path) {
-      if (!path) return "";
-      const trimmed = path.replace(/\\/+$/, "");
-      const idx = trimmed.lastIndexOf("/");
-      return idx >= 0 ? trimmed.slice(idx + 1) : trimmed;
-    }
-
-    function selectWorkspace(wsId) {
-      selectedWorkspaceId = wsId;
-      if (currentStatus) {
-        renderSidebarWorkspaces(currentStatus);
-        renderSelectedWorkspace(currentStatus);
-      }
-    }
-
-    async function abortCommand(workspaceId, commandId) {
-      if (!confirm("Are you sure you want to abort this running command?")) return;
-      try {
-        const res = await fetch("/api/abort", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ workspace_id: workspaceId, command_id: commandId })
-        });
-        if (res.ok) {
-          fetchStatus();
-        } else {
-          alert("Failed to abort command.");
-        }
-      } catch (err) {
-        alert("Error sending abort request: " + err.message);
-      }
-    }
-
-    async function fetchStatus() {
-      try {
-        const res = await fetch("/api/status");
-        if (!res.ok) throw new Error("HTTP " + res.status);
-        const data = await res.json();
-        currentStatus = data;
-        render(data);
-      } catch (err) {
-        document.getElementById("stat-updated").textContent = "offline";
-        console.error("Failed to fetch bridge status:", err);
-      }
-    }
-
-    function render(data) {
-      document.getElementById("uptime-label").textContent = "Uptime: " + formatUptime(data.uptimeSeconds);
-      document.getElementById("stat-workspaces").textContent = data.workspacesCount;
-      document.getElementById("ws-count-badge").textContent = data.workspacesCount;
-      document.getElementById("stat-running").textContent = data.activeCommandsCount;
-      document.getElementById("stat-version").textContent = "v" + data.version;
-      document.getElementById("stat-updated").textContent = new Date().toLocaleTimeString();
-
-      const runningCard = document.getElementById("stat-running-card");
-      if (data.activeCommandsCount > 0) {
-        runningCard.classList.add("alert-running");
-        document.getElementById("stat-running").classList.add("running-val");
-      } else {
-        runningCard.classList.remove("alert-running");
-        document.getElementById("stat-running").classList.remove("running-val");
-      }
-
-      // Automatically select first workspace if none or invalid
-      const wsList = data.workspaces || [];
-      const hasSelected = wsList.some(w => w.id === selectedWorkspaceId);
-      if (!hasSelected) {
-        // Prioritize workspace with running command, else first
-        const runningWs = wsList.find(w => w.activeCommands && w.activeCommands.length > 0);
-        selectedWorkspaceId = runningWs ? runningWs.id : (wsList[0] ? wsList[0].id : null);
-      }
-
-      renderSidebarWorkspaces(data);
-      renderSelectedWorkspace(data);
-    }
-
-    function renderSidebarWorkspaces(data) {
-      const list = document.getElementById("workspaces-list");
-      const workspaces = data.workspaces || [];
-
-      if (workspaces.length === 0) {
-        list.innerHTML = \`
-          <div style="padding: 24px 12px; text-align: center; color: var(--text-dim); font-size: 12px;">
-            No open workspaces.<br/>Assistants opening a directory will appear here.
-          </div>\`;
-        return;
-      }
-
-      list.innerHTML = workspaces.map(ws => {
-        const isRunning = ws.activeCommands && ws.activeCommands.length > 0;
-        const isSelected = ws.id === selectedWorkspaceId;
-        const base = getBasename(ws.cwd);
-
-        return \`
-          <div class="ws-item \${isSelected ? 'selected' : ''} \${isRunning ? 'running' : ''}" onclick="selectWorkspace('\${ws.id}')">
-            <div class="ws-item-header">
-              <div class="ws-item-title">
-                <div class="ws-dot \${isRunning ? 'running' : ''}"></div>
-                <span>\${escapeHtml(base)}</span>
-              </div>
-              <div>
-                \${isRunning 
-                  ? \`<span class="badge badge-running">⚡ \${ws.activeCommands.length} RUNNING</span>\`
-                  : \`<span class="badge badge-idle">IDLE</span>\`
-                }
-              </div>
-            </div>
-            <div class="ws-item-path" title="\${escapeHtml(ws.cwd)}">\${escapeHtml(ws.cwd)}</div>
-            <div class="ws-item-meta">
-              <span>\${formatTimeAgo(ws.lastUsed)}</span>
-              <span class="badge badge-id">\${escapeHtml(ws.id.slice(0, 8))}</span>
-            </div>
-          </div>\`;
-      }).join("");
-    }
-
-    function renderSelectedWorkspace(data) {
-      const container = document.getElementById("main-content");
-      const workspaces = data.workspaces || [];
-      const ws = workspaces.find(w => w.id === selectedWorkspaceId);
-
-      if (!ws) {
-        container.innerHTML = \`
-          <div class="empty-state">
-            <div class="empty-icon">📭</div>
-            <div class="empty-title">No Workspace Selected</div>
-            <div>Select a workspace on the left sidebar to view its live commands.</div>
-          </div>\`;
-        return;
-      }
-
-      const isRunning = ws.activeCommands && ws.activeCommands.length > 0;
-
-      // Active commands HTML
-      let activeSection = "";
-      if (isRunning) {
-        const activeBoxes = ws.activeCommands.map(cmd => {
-          const elapsedSec = (cmd.elapsedMs / 1000).toFixed(1);
-          return \`
-            <div class="running-box">
-              <div class="running-box-header">
-                <span>⚡ EXECUTING: \${escapeHtml(cmd.tool)}</span>
-                <div style="display: flex; align-items: center; gap: 8px;">
-                  <span class="running-timer">running for \${elapsedSec}s</span>
-                  <button class="btn btn-danger" style="padding: 3px 10px; font-size: 11px;" onclick="abortCommand('\${ws.id}', '\${cmd.id}')">Abort Command</button>
-                </div>
-              </div>
-              <div class="running-command-desc">\${escapeHtml(cmd.description)}</div>
-            </div>\`;
-        }).join("");
-
-        activeSection = \`
-          <div>
-            <div class="section-title">
-              <span>⚡ Currently Running Commands (\${ws.activeCommands.length})</span>
-            </div>
-            \${activeBoxes}
-          </div>\`;
-      }
-
-      // Last command HTML
-      let lastCmdSection = "";
-      if (ws.lastCommand) {
-        const pillClass = ws.lastCommand.success ? "pill-success" : "pill-fail";
-        const pillText = ws.lastCommand.success ? "✓ Success" : "✗ Error";
-        lastCmdSection = \`
-          <div>
-            <div class="section-title">
-              <span>Last Completed Command</span>
-            </div>
-            <div class="last-command-card">
-              <div class="last-cmd-header">
-                <span>\${formatTimeAgo(ws.lastCommand.completedAt)} (\${formatDuration(ws.lastCommand.durationMs)})</span>
-                <span class="status-pill \${pillClass}">\${pillText}</span>
-              </div>
-              <div class="last-cmd-content">
-                <strong>\${escapeHtml(ws.lastCommand.tool)}</strong>
-                <span>\${escapeHtml(ws.lastCommand.description)}</span>
-              </div>
-              \${ws.lastCommand.error ? \`
-                <div style="font-family: monospace; font-size: 11px; color: #fca5a5; background: rgba(239, 68, 68, 0.1); padding: 6px 10px; border-radius: 4px; margin-top: 4px;">
-                  \${escapeHtml(ws.lastCommand.error)}
-                </div>
-              \` : ''}
-            </div>
-          </div>\`;
-      }
-
-      // Recent history table
-      let recentSection = "";
-      if (ws.recentCommands && ws.recentCommands.length > 0) {
-        const rows = ws.recentCommands.map(c => \`
-          <tr>
-            <td style="width: 70px;">
-              <span class="status-pill \${c.success ? 'pill-success' : 'pill-fail'}">\${c.success ? 'OK' : 'ERR'}</span>
-            </td>
-            <td style="width: 90px; font-weight: 700; color: var(--accent);">\${escapeHtml(c.tool)}</td>
-            <td style="color: var(--text); word-break: break-all;">
-              \${escapeHtml(c.description)}
-              \${c.error ? \`<div style="color: #fca5a5; font-size: 11px; margin-top: 2px;">\${escapeHtml(c.error)}</div>\` : ''}
-            </td>
-            <td style="width: 80px; text-align: right; color: var(--text-dim);">\${formatDuration(c.durationMs)}</td>
-            <td style="width: 90px; text-align: right; color: var(--text-dim);">\${formatTimeAgo(c.completedAt)}</td>
-          </tr>
-        \`).join("");
-
-        recentSection = \`
-          <div>
-            <div class="section-title">
-              <span>Recent Activity (\${ws.recentCommands.length})</span>
-            </div>
-            <div class="recent-table-wrap">
-              <table class="recent-table">
-                <thead>
-                  <tr>
-                    <th>Status</th>
-                    <th>Tool</th>
-                    <th>Command / Action</th>
-                    <th style="text-align: right;">Duration</th>
-                    <th style="text-align: right;">Time</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  \${rows}
-                </tbody>
-              </table>
-            </div>
-          </div>\`;
-      } else if (!isRunning && !ws.lastCommand) {
-        recentSection = \`
-          <div class="empty-state" style="padding: 30px 20px;">
-            <div style="font-size: 24px; margin-bottom: 6px;">☕</div>
-            <div style="font-size: 14px; font-weight: 600; color: var(--text-muted);">No commands executed yet</div>
-            <div style="font-size: 12px; color: var(--text-dim); margin-top: 4px;">Commands initiated by the AI assistant in this workspace will appear here.</div>
-          </div>\`;
-      }
-
-      container.innerHTML = \`
-        <div class="main-header">
-          <div class="main-title-wrap">
-            <div style="display: flex; align-items: center; gap: 8px;">
-              <div class="ws-dot \${isRunning ? 'running' : ''}"></div>
-              <div class="main-ws-path">\${escapeHtml(ws.cwd)}</div>
-            </div>
-            <div class="main-ws-meta">
-              <span>ID: <code style="color: var(--text-dim);">\${escapeHtml(ws.id)}</code></span>
-              <span>•</span>
-              <span>Opened \${formatTimeAgo(ws.createdAt)}</span>
-              <span>•</span>
-              <span>Last active \${formatTimeAgo(ws.lastUsed)}</span>
-            </div>
-          </div>
-          <div>
-            \${isRunning 
-              ? \`<span class="badge badge-running" style="font-size: 11px; padding: 4px 10px;">⚡ \${ws.activeCommands.length} RUNNING COMMAND(S)</span>\`
-              : \`<span class="badge badge-idle" style="font-size: 11px; padding: 4px 10px;">IDLE</span>\`
-            }
-          </div>
-        </div>
-
-        \${activeSection}
-        \${lastCmdSection}
-        \${recentSection}
-      \`;
-    }
-
-    function toggleAutoRefresh() {
-      autoRefresh = !autoRefresh;
-      document.getElementById("toggle-refresh-btn").textContent = "Auto-refresh: " + (autoRefresh ? "ON" : "OFF");
-      if (autoRefresh) {
-        fetchStatus();
-        startTimer();
-      } else {
-        clearInterval(refreshTimer);
-      }
-    }
-
-    function startTimer() {
-      clearInterval(refreshTimer);
-      refreshTimer = setInterval(() => {
-        if (autoRefresh) fetchStatus();
-      }, 1000);
-    }
-
-    fetchStatus();
-    startTimer();
-  </script>
+  <script>${dashboardScript}</script>
 </body>
 </html>`;
 }

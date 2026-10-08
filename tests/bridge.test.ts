@@ -6,10 +6,10 @@ import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { call, delay, fixture, open, quote, stdio, untilFile } from "./helpers.ts";
 
-test("ten real MCP tools, home/project context, skills, and no automatic extension loading", async t => {
+test("real MCP tools, home/project context, skills, and no automatic extension loading", async t => {
   const f = await fixture(); t.after(f.close);
   const h = await stdio(f.state); t.after(h.close);
-  assert.deepEqual((await h.client.listTools()).tools.map(tool => tool.name).sort(), ["workspace_open", "workspace_close", "read", "write", "edit", "bash", "ls", "find", "grep", "skill_info"].sort());
+  assert.deepEqual((await h.client.listTools()).tools.map(tool => tool.name).sort(), ["workspace_open", "workspace_close", "workspace_list", "run_start", "work_handoff", "read", "write", "edit", "bash", "ls", "find", "grep", "skill_info"].sort());
   const home = await call(h.client, "workspace_open");
   assert.equal(home.structuredContent.cwd, homedir());
   assert.equal(home.structuredContent.models_for_tools, false);
@@ -194,4 +194,3 @@ test("workspace limit reclaims least recently used idle workspace while preservi
   await call(h.client, "workspace_close", { workspace_id: busy });
   await busyPromise;
 });
-

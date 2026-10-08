@@ -41,6 +41,30 @@ export async function serveHttp(bridge: Bridge, options: { port: number; tokenFi
       return;
     }
 
+    if ((req.url === "/api/handoffs/read" || req.url === "/api/projects/preferences") && req.method === "POST") {
+      const chunks: Buffer[] = [];
+      let size = 0;
+      for await (const chunk of req) {
+        size += chunk.length;
+        if (size > 4096) { reject(res, 413, "Request too large"); return; }
+        chunks.push(chunk);
+      }
+      try {
+        const payload = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+        if (!payload || typeof payload !== "object") throw new Error("Expected an object");
+        if (req.url === "/api/handoffs/read") {
+          if (typeof payload.handoff_id !== "string") throw new Error("handoff_id is required");
+          bridge.acknowledgeHandoff(payload.handoff_id);
+        } else {
+          if (typeof payload.project_id !== "string" || typeof payload.desktop_notifications !== "boolean") throw new Error("project_id and desktop_notifications are required");
+          bridge.setProjectPreferences(payload.project_id, payload.desktop_notifications);
+        }
+        res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
+        res.end(JSON.stringify({ ok: true }));
+      } catch (error) { reject(res, 400, error instanceof Error ? error.message : "Invalid request"); }
+      return;
+    }
+
     if (req.url === "/api/abort" && req.method === "POST") {
       const chunks: Buffer[] = [];
       for await (const chunk of req) chunks.push(chunk);
@@ -116,6 +140,7 @@ export async function serveHttp(bridge: Bridge, options: { port: number; tokenFi
   http.requestTimeout = 30_000; // Bounds receipt of the request body, not tool execution.
   await new Promise<void>((resolve, reject) => { http.once("error", reject); http.listen(port, "127.0.0.1", () => resolve()); });
   port = (http.address() as { port: number }).port;
+  bridge.setDashboardUrl(`http://127.0.0.1:${port}/`);
   const reap = setInterval(() => {
     for (const session of sessions.values()) {
       if (!session.active && Date.now() - session.lastUsed > 3_600_000) void session.server.close();
