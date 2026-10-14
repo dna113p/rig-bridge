@@ -29,7 +29,8 @@
     "typecheck": "tsc --noEmit",
     "test": "node --test tests/*.test.ts",
     "test:tunnel": "node --test tests/tunnel.integration.ts",
-    "check": "npm run lint && npm run typecheck && npm test"
+    "smoke:serve": "node scripts/smoke-serve.ts",
+    "check": "npm run lint && npm run typecheck && npm test && npm run smoke:serve"
   },
   "dependencies": {
     "@earendil-works/pi-coding-agent": "0.85.1",

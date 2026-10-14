@@ -203,9 +203,13 @@ When switching between Wi-Fi networks, tethering to a mobile hotspot, or resumin
 ## Development and verification
 
 ```sh
-npm run check
+npm run check        # lint, typecheck, tests, and the serve smoke check
 npm run test:tunnel  # Optional: requires tunnel-client 0.0.14 with dev proxy
 ```
+
+`npm run lint` runs oxlint and fails on warnings. `npm run smoke:serve` starts `src/cli.ts serve` on a free port with a temporary state directory, then checks the generated owner-only bearer file, the health, dashboard, and status endpoints, MCP authentication, one authenticated tool call, and a clean SIGTERM shutdown. It never uses port 8767 or the default state directory.
+
+Delegated work runs through the Machines catalog in `.machines/`; see [.machines/README.md](.machines/README.md).
 
 Tests use real MCP clients and Pi implementations: project routing, unrestricted paths, image reads, edits/revisions, concurrent HTTP calls, cancellation, close/shutdown, authentication, restart receipts, and uncertain outcomes after a forced server crash. The optional test routes two clients through a real tunnel-client development proxy. It uses disposable local control infrastructure, not a deployed remote assistant connection.
 
