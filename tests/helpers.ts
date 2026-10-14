@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { StdioClientTransport, getDefaultEnvironment } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { Bridge } from "../src/server.ts";
 import { serveHttp } from "../src/http.ts";
@@ -34,7 +34,9 @@ export async function fixture() {
 }
 export async function stdio(state: string) {
   const client = new Client({ name: "test", version: "1" });
-  const transport = new StdioClientTransport({ command: process.execPath, args: [join(root, "src/cli.ts"), "--state-dir", state], stderr: "pipe" });
+  // Isolate Pi's user-level agent directory so the owner's global AGENTS.md and skills do not leak into tests.
+  const env = { ...getDefaultEnvironment(), PI_CODING_AGENT_DIR: join(state, "pi-agent") };
+  const transport = new StdioClientTransport({ command: process.execPath, args: [join(root, "src/cli.ts"), "--state-dir", state], env, stderr: "pipe" });
   let diagnostics = "";
   transport.stderr?.on("data", data => { diagnostics = (diagnostics + data).slice(-4000); });
   await client.connect(transport);
