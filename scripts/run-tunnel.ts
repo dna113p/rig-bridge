@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { chmod, mkdir, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";

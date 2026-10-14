@@ -8,7 +8,7 @@ import { atomicReplace, canonicalPath, fileAccess, requireRevision, resolveInput
 
 // Arguments have already passed the MCP catalog's JSON Schema validation.
 export async function executeTool(name: string, args: Record<string, any>, cwd: string, stateDirectory: string, signal: AbortSignal): Promise<CallToolResult> {
-  const { workspace_id, request_key, expected_revision, ...input } = args;
+  const { workspace_id: _workspace_id, request_key, expected_revision, ...input } = args;
   if (name === "read") {
     const target = resolveInput(input.path, cwd);
     const info = await stat(target);

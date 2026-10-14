@@ -1,4 +1,4 @@
-import { access, chmod, lstat, mkdir, open, readFile, realpath, rename, rm, stat } from "node:fs/promises";
+import { access, lstat, mkdir, open, readFile, realpath, rename, rm, stat } from "node:fs/promises";
 import { constants } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { homedir } from "node:os";

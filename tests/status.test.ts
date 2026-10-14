@@ -62,7 +62,6 @@ test("HTTP status and dashboard endpoints expose active workspaces, running comm
   assert.equal(statusAfterDone.workspaces[0].recentCommands.length, 1);
 
   // 6. Test aborting a running command via /api/abort
-  const abortController = new AbortController();
   const hangingPromise = call(client, "bash", {
     workspace_id,
     request_key: "to-abort",

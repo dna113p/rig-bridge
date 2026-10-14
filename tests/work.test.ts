@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { mkdir, stat, writeFile } from "node:fs/promises";
+import { mkdir, stat } from "node:fs/promises";
 import { execFileSync, execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { join } from "node:path";

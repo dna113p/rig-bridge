@@ -1,0 +1,12 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "ignorePatterns": [".machines/_machine-shop/**"],
+  "overrides": [
+    {
+      "files": ["src/dashboard.js"],
+      "rules": {
+        "no-unused-vars": ["warn", { "varsIgnorePattern": "^(selectWorkspace|showInbox|markProjectRead|toggleDesktop|toggleBrowser|abortCommand|toggleAutoRefresh)$" }]
+      }
+    }
+  ]
+}
