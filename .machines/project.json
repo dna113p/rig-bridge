@@ -1,0 +1,22 @@
+{
+  "checks": [
+    { "name": "lint", "command": ["npm", "run", "lint"], "timeoutMs": 60000 },
+    { "name": "types", "command": ["npm", "run", "typecheck"], "timeoutMs": 120000 },
+    { "name": "tests", "command": ["env", "-u", "NODE_TEST_CONTEXT", "npm", "test"], "timeoutMs": 300000 },
+    { "name": "smoke", "command": ["npm", "run", "smoke:serve"], "timeoutMs": 60000 },
+    { "name": "tunnel", "command": ["env", "-u", "NODE_TEST_CONTEXT", "npm", "run", "test:tunnel"], "timeoutMs": 120000 }
+  ],
+  "ticket": {
+    "base": "main",
+    "output": "branch",
+    "worktreeRoot": "../rig-bridge-worktrees",
+    "setup": [
+      { "name": "install", "command": ["npm", "ci", "--ignore-scripts"], "timeoutMs": 300000 }
+    ],
+    "forbidden": [
+      "Do not start, stop, restart, or reinstall the owner's rig-bridge.service or rig-bridge-tunnel.service, and do not run npm run install:service or install:tunnel-service; the live bridge runs from the main checkout.",
+      "Do not bind 127.0.0.1:8767 or read or change ~/.local/state/rig-bridge; tests use temporary state directories and port 0.",
+      "Do not read or print .env, tunnel API keys, or any HTTP authorization file."
+    ]
+  }
+}

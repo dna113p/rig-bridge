@@ -1,0 +1,84 @@
+import { readFileSync } from "node:fs";
+import { basename, join, resolve } from "node:path";
+import { jsonObject, object } from "../_machine-shop/task.ts";
+
+/** The checkout whose .machines/ defined this route. */
+export const definingCheckout = resolve(import.meta.dirname, "..", "..");
+
+interface Gate { name: string; command: string[]; timeoutMs?: number }
+interface Project {
+  checks: Gate[];
+  ticket: { base: string; output: string; worktreeRoot: string; setup: Gate[]; forbidden: string[] };
+}
+
+/** project.json is the one list of gates; every route reads it. */
+export function project(): Project {
+  return JSON.parse(readFileSync(join(import.meta.dirname, "..", "project.json"), "utf8")) as Project;
+}
+
+/** The named gates in project.json order, or all of them; an unknown name is refused rather than skipped. */
+export function gates(names: string[] = []): Gate[] {
+  const all = project().checks;
+  const unknown = names.filter(name => !all.some(gate => gate.name === name));
+  if (unknown.length > 0) throw new Error(`Unknown gate(s): ${unknown.join(", ")}; project.json has ${all.map(g => g.name).join(", ")}`);
+  return all.filter(gate => names.length === 0 || names.includes(gate.name));
+}
+
+/**
+ * Accepts a Machine Shop assignment as an object, JSON text, or plain task text
+ * and fills the workspace with this checkout. Editing routes also get every
+ * gate unless the assignment names its own; read-only routes get none.
+ */
+export function withGates(input: unknown, { checks = true }: { checks?: boolean } = {}): Record<string, unknown> {
+  const assignment = typeof input === "string" ? jsonObject(input) ?? { task: input } : input;
+  if (!assignment || typeof assignment !== "object" || Array.isArray(assignment)) {
+    throw new Error("Input must be task text or a Machine Shop assignment object");
+  }
+  const filled: Record<string, unknown> = { workspace: definingCheckout, ...assignment };
+  if (typeof filled.workspace === "string") filled.workspace = resolve(filled.workspace);
+  if (checks && filled.checks === undefined) filled.checks = gates();
+  return filled;
+}
+
+const ticketKeys = ["ticket", "ticketFile", "output", "maxRepairs", "maxReviewRounds", "resume", "assume", "stuck", "redGreen"];
+
+/**
+ * Maps a rig-bridge ticket request onto Machine Shop's ticket-task input.
+ * The repository, base, setup, gates, worktree root, and project-wide
+ * forbidden actions come from project.json; a request supplies the ticket
+ * and may change the delivery mode and budgets.
+ */
+export function ticketInput(input: unknown, { cwd = process.cwd(), root = definingCheckout } = {}): Record<string, unknown> {
+  const request = object(typeof input === "string" ? jsonObject(input) ?? fileRequest(input) : input, "input", ticketKeys);
+  if ((request.ticket === undefined) === (request.ticketFile === undefined)) throw new Error("Supply exactly one of ticket or ticketFile");
+  const ticket = request.ticketFile === undefined
+    ? { ...object(request.ticket, "ticket", ["id", "title", "body", "source", "metadata"]) }
+    : readTicket(resolve(cwd, String(request.ticketFile)));
+  const config = project().ticket;
+  if (typeof ticket.body === "string") ticket.body = `${ticket.body.trimEnd()}\n\n## Forbidden\n${config.forbidden.map(rule => `- ${rule}`).join("\n")}\n`;
+  const worktreeRoot = resolve(root, config.worktreeRoot);
+  const { ticket: _ticket, ticketFile: _file, output = config.output, ...budgets } = request;
+  return {
+    ticket,
+    repository: { name: basename(root), path: root, base: config.base, output, setup: config.setup, checks: gates() },
+    worktreeRoot,
+    // Evidence sits beside the worktrees, outside every checkout, so it is never committed.
+    evidenceRoot: worktreeRoot,
+    ...budgets,
+  };
+}
+
+/** Plain text that is not JSON is a ticket file path. */
+function fileRequest(input: string) {
+  const path = input.trim();
+  if (!path.endsWith(".md")) throw new Error("Text input must be a ticket .md path or a JSON request");
+  return { ticketFile: path };
+}
+
+/** A ticket file is `<id>.md` whose first `# ` heading is the title; the rest is the body. */
+export function readTicket(path: string): { id: string; title: string; body: string } {
+  const text = readFileSync(path, "utf8");
+  const heading = /^#\s+(.+?)\s*$/mu.exec(text);
+  if (!heading) throw new Error(`${path} needs a first "# Title" heading`);
+  return { id: basename(path, ".md"), title: heading[1]!, body: text.slice(heading.index + heading[0].length).trim() };
+}
