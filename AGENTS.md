@@ -13,19 +13,28 @@ route fits. Edits to rig-bridge go through `ticket`, which works in its own
 worktree. A worker already running inside a Machine state does its assignment
 directly.
 
-## Reporting through Drip
+## Drip project
 
-Drip is the owner's inbox. Its one job is to get them back into context fast.
 This checkout is registered as project `Rig Bridge`.
 
-- For work that may outlast the owner's attention, open a thread with
-  `drip_open`, with their ask in their own words.
-- Keep one recap current with `drip_recap`. Its `now` line is one sentence
-  with the verdict and the state ("The export is fixed: one index, two fast
-  nights"), because that line is what the owner reads in the list.
-- Before any question or hand-off, send a page: breadcrumb (project, ticket,
-  file or component), a diagram or table of the change, the evidence that
-  matters, and the decision at the end. Attach it to the recap or to the
-  question. A page on a plain `drip_say` sits behind "Open the conversation".
-- Ask with `drip_ask` only when the work cannot continue, and offer choices
-  with what each one does.
+<!-- drip:reporting -->
+## Reporting through Drip
+
+
+Use Drip for work that may outlast the person's attention: more than a few
+minutes, or started from Drip or a phone. Read the `drip-briefing` skill
+before reporting; use `drip_guide` if the skill is unavailable. At the start,
+use `drip_projects` to find the registered project holding this folder, then
+open a thread with `drip_open`. Keep the person's ask in their own words.
+If no project matches, say which folder needs registration and continue.
+Keep the thread's recap current with `drip_recap`: on opening, after each
+milestone, before each question, and when the work drifts from the ask.
+Write its `now` as a sentence about where the work stands, never a name and
+state label. Say what changed and what the person needs to do. Ask blocking
+questions with `drip_ask`; distinguish restricted choices from suggestions,
+and explain each choice's effect and your recommendation. Attach a page to
+its recap or question when useful; keep the text able to stand alone.
+Read and answer the person's messages returned by the tools. When finished,
+close the thread with `drip_close` and a final result. Say "Nothing needed."
+once when there is nothing for the person to do.
+<!-- /drip:reporting -->
