@@ -1,0 +1,33 @@
+{
+  "version": "0.2.0",
+  "files": {
+    "dev-investigate.ts": {
+      "hash": "e35eb9974114f8d8d98540323fbc43d02feda1ac90ad31274460cc2770cf10b8",
+      "version": "0.2.0"
+    },
+    "dev-review-code.ts": {
+      "hash": "3bb5d23027699a66aa0d4387c876e518a8ddd40dbaaf9e53abaa511ff98cce06",
+      "version": "0.2.0"
+    },
+    "_machine-shop/task.ts": {
+      "hash": "7bcf66be0a89678297903504adc0d2c0f0adc215749c77e7f79fa7902eba0fed",
+      "version": "0.2.0"
+    },
+    "_machine-shop/scope.ts": {
+      "hash": "3ce6edb49484fcdfa31b690ac8f74d938ba61cdd2c3622503adb47edf68e20ae",
+      "version": "0.2.0"
+    },
+    "_machine-shop/brief.ts": {
+      "hash": "d5e25d267a76851d4153c64be992bf4c359a7855c645f4b51aed08150a0a049f",
+      "version": "0.2.0"
+    },
+    "_machine-shop/ticket-task.ts": {
+      "hash": "c434c695a1b0dd675b0a7e5b2bdb4510455503f9d7e252ed98f9d44a30b7531b",
+      "version": "0.2.0"
+    },
+    "dev-add-tests.ts": {
+      "hash": "1a4a04a24e615dc28d608d8293c5ff0c26366614103f5652e782192c3e45f564",
+      "version": "0.2.0"
+    }
+  }
+}
