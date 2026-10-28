@@ -5,10 +5,21 @@ import { jsonObject, object } from "../_machine-shop/task.ts";
 /** The checkout whose .machines/ defined this route. */
 export const definingCheckout = resolve(import.meta.dirname, "..", "..");
 
-interface Gate { name: string; command: string[]; timeoutMs?: number }
+/** A gate as project.json gives it; layered fields (when, focused, group, after, ...) pass through to Machine Shop untouched. */
+interface Gate { name: string; command: string[]; timeoutMs?: number; [layered: string]: unknown }
 interface Project {
   checks: Gate[];
-  ticket: { base: string; output: string; worktreeRoot: string; setup: Gate[]; forbidden: string[] };
+  ticket: {
+    base: string; output: string; worktreeRoot: string; setup: Gate[];
+    /** Paths every ticket may touch beside its own Scope. */
+    companions?: string[];
+    /** Path globs a revert cannot undo (credentials, the live services' install scripts); a change to one stops the run for the owner. */
+    forbiddenPaths?: string[];
+    /** Prose rules appended to every ticket's Forbidden section; they guide the Agents and stop nothing by themselves. */
+    forbidden: string[];
+    /** The standing level when a ticket names none; unset leaves Machine Shop's default, trusted. */
+    level?: string;
+  };
 }
 
 /** project.json is the one list of gates; every route reads it. */
@@ -40,13 +51,17 @@ export function withGates(input: unknown, { checks = true }: { checks?: boolean 
   return filled;
 }
 
-const ticketKeys = ["ticket", "ticketFile", "output", "maxRepairs", "maxReviewRounds", "resume", "assume", "stuck", "redGreen"];
+// maxReviewRounds, redGreen and assume only change a careful run; trusted and auto accept and ignore them.
+const ticketKeys = ["ticket", "ticketFile", "output", "level", "continueImplementer", "maxRepairs", "maxReviewRounds", "resume", "assume", "stuck", "redGreen"];
 
 /**
  * Maps a rig-bridge ticket request onto Machine Shop's ticket-task input.
- * The repository, base, setup, gates, worktree root, and project-wide
- * forbidden actions come from project.json; a request supplies the ticket
- * and may change the delivery mode and budgets.
+ * The repository, base, setup, gates, companions, forbidden paths, worktree
+ * root, and project-wide forbidden actions come from project.json; a request
+ * supplies the ticket and may change the level, delivery mode and budgets.
+ * The level is the request's `level`, else `careful` when the ticket is tagged
+ * `careful`, else project.json's `ticket.level`; with none, ticket-task runs
+ * `trusted` (docs/plans/trusted-by-default.md in machines-org).
  */
 export function ticketInput(input: unknown, { cwd = process.cwd(), root = definingCheckout } = {}): Record<string, unknown> {
   const request = object(typeof input === "string" ? jsonObject(input) ?? fileRequest(input) : input, "input", ticketKeys);
@@ -57,10 +72,17 @@ export function ticketInput(input: unknown, { cwd = process.cwd(), root = defini
   const config = project().ticket;
   if (typeof ticket.body === "string") ticket.body = `${ticket.body.trimEnd()}\n\n## Forbidden\n${config.forbidden.map(rule => `- ${rule}`).join("\n")}\n`;
   const worktreeRoot = resolve(root, config.worktreeRoot);
-  const { ticket: _ticket, ticketFile: _file, output = config.output, ...budgets } = request;
+  const { ticket: _ticket, ticketFile: _file, output = config.output, level: asked, ...budgets } = request;
+  const metadata = (ticket as { metadata?: { tags?: unknown } }).metadata;
+  const tags = Array.isArray(metadata?.tags) ? metadata.tags : [];
+  const level = asked ?? (tags.includes("careful") ? "careful" : config.level);
   return {
     ticket,
-    repository: { name: basename(root), path: root, base: config.base, output, setup: config.setup, checks: gates() },
+    ...(level === undefined ? {} : { level }),
+    repository: {
+      name: basename(root), path: root, base: config.base, output, setup: config.setup, checks: gates(),
+      companions: config.companions ?? [], forbidden: config.forbiddenPaths ?? [],
+    },
     worktreeRoot,
     // Evidence sits beside the worktrees, outside every checkout, so it is never committed.
     evidenceRoot: worktreeRoot,

@@ -1,7 +1,9 @@
 # rig-bridge agent guidance
 
-Run `npm run check` before calling a change done. The live `rig-bridge.service`
-runs from this checkout's `src/`; do not restart it or bind port 8767 from here.
+Outside a Machine run, run `npm run check` before calling a change done. Inside
+one, run the focused tests for what you changed; the workflow runs the rest of
+the gates. The live `rig-bridge.service` runs from this checkout's `src/`; do
+not restart it or bind port 8767 from here.
 
 ## Delegating work through Machines
 
@@ -12,6 +14,19 @@ skill to launch and supervise a run, and `machine-project-setup` only when no
 route fits. Edits to rig-bridge go through `ticket`, which works in its own
 worktree. A worker already running inside a Machine state does its assignment
 directly.
+
+The conversation that understands a piece of work should do it. Handing work to
+a fresh Agent loses what the conversation knows, so delegate when that context
+is not needed: a separate change that can run in parallel, a review that needs
+clean eyes, or work that waits for later as a ticket. Changes whose decisions
+depend on each other stay in one conversation or ticket.
+
+Write a ticket as the problem and its fences, not the design: `## Goal` (who
+needs what, and why), `## Acceptance` as observable results, `## Forbidden`
+paths and irreversible decisions, and `## Scope` as a hint of the likely paths.
+Leave implementation choices, wording and test lists to the implementer, which
+reports them as assumptions. A `ticket` run decides everything a revert can
+undo and asks only about what it cannot.
 
 ## Drip project
 

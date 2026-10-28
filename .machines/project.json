@@ -1,10 +1,12 @@
 {
   "checks": [
-    { "name": "lint", "command": ["npm", "run", "lint"], "timeoutMs": 60000 },
-    { "name": "types", "command": ["npm", "run", "typecheck"], "timeoutMs": 120000 },
-    { "name": "tests", "command": ["env", "-u", "NODE_TEST_CONTEXT", "npm", "test"], "timeoutMs": 300000 },
-    { "name": "smoke", "command": ["npm", "run", "smoke:serve"], "timeoutMs": 60000 },
-    { "name": "tunnel", "command": ["env", "-u", "NODE_TEST_CONTEXT", "npm", "run", "test:tunnel"], "timeoutMs": 120000 }
+    { "name": "lint", "command": ["npm", "run", "lint"], "timeoutMs": 60000, "group": "validation" },
+    { "name": "types", "command": ["npm", "run", "typecheck"], "timeoutMs": 120000, "group": "validation" },
+    { "name": "tests", "command": ["env", "-u", "NODE_TEST_CONTEXT", "node", "--test", "tests/*.test.ts"], "timeoutMs": 300000, "focused": true, "group": "validation" },
+    { "name": "smoke", "command": ["npm", "run", "smoke:serve"], "timeoutMs": 60000, "group": "live", "after": ["lint", "types", "tests"],
+      "when": ["src/**", "scripts/smoke-serve.ts", "package.json", "package-lock.json"] },
+    { "name": "tunnel", "command": ["env", "-u", "NODE_TEST_CONTEXT", "npm", "run", "test:tunnel"], "timeoutMs": 120000, "group": "live", "after": ["lint", "types", "tests"],
+      "when": ["src/**", "tests/tunnel.integration.ts", "tests/helpers.ts", "scripts/run-tunnel.ts", "package.json", "package-lock.json"] }
   ],
   "ticket": {
     "base": "main",
@@ -13,6 +15,8 @@
     "setup": [
       { "name": "install", "command": ["npm", "ci", "--ignore-scripts"], "timeoutMs": 300000 }
     ],
+    "companions": ["tests/**", "docs/**", "README.md"],
+    "forbiddenPaths": [".env", "scripts/install-service.ts", "scripts/install-tunnel-service.ts"],
     "forbidden": [
       "Do not start, stop, restart, or reinstall the owner's rig-bridge.service or rig-bridge-tunnel.service, and do not run npm run install:service or install:tunnel-service; the live bridge runs from the main checkout.",
       "Do not bind 127.0.0.1:8767 or read or change ~/.local/state/rig-bridge; tests use temporary state directories and port 0.",

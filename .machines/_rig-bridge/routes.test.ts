@@ -82,6 +82,7 @@ const body = [
 ].join("\n");
 const markerTest = 'import assert from "node:assert/strict";\nimport { test } from "node:test";\n\ntest("fixture marker is ready", async () => {\n  const { marker } = await import("../src/fixture-marker.ts");\n  assert.equal(marker, "ready");\n});\n';
 const approve = { type: "approved", summary: "Marker matches the ticket", criteria: [{ text: "marker", met: true, evidence: "src/fixture-marker.ts:1" }], findings: [], newSinceLastRound: "none" };
+// Only a careful run plans; a trusted run's implementer owns the ticket end to end.
 const planning: Record<string, unknown> = {
   falsify: { type: "sound", summary: "The marker module does not exist yet." },
   plan: { type: "planned", summary: "Add src/fixture-marker.ts and tests/fixture-marker.test.ts." },
@@ -101,7 +102,13 @@ function clone(context: TestContext) {
   return repo;
 }
 
-async function ticket(context: TestContext, agents: Partial<Record<"tester" | "implementer" | "reviewer" | "falsify", Runner>>, extra = {}) {
+/** The owner's side of a stuck run: each question is recorded and answered "hand off". */
+function owner() {
+  const asked: string[] = [];
+  return { asked, answer: (request: { prompt: string }) => { asked.push(request.prompt); return "hand off"; } };
+}
+
+async function ticket(context: TestContext, agents: Partial<Record<"tester" | "implementer" | "reviewer" | "falsify", Runner>>, extra = {}, human = owner()) {
   const repo = clone(context);
   const states: string[] = [];
   const called: string[] = [];
@@ -118,62 +125,90 @@ async function ticket(context: TestContext, agents: Partial<Record<"tester" | "i
   const input = ticketInput({ ticket: { id: "RB-T", title: "Add fixture marker", body }, maxRepairs: 0, ...extra }, { root: repo });
   const result = await runtime.run(ticketTask(runtime, input), {
     agents: Object.fromEntries(["investigator", "tester", "implementer", "reviewer"].map(role => [role, staged(role)])),
-    human: () => { throw new Error("unattended ticket runs must not ask a Human"); },
+    human: human.answer,
     onState: state => states.push(String(state)),
   });
   const runs = join(String((input as any).evidenceRoot), ".machine-runs/machine-shop");
   const [id] = readdirSync(runs);
   const receipt = JSON.parse(readFileSync(join(runs, id!, "result.json"), "utf8"));
+  const delivery = existsSync(join(runs, id!, "delivery.json")) ? JSON.parse(readFileSync(join(runs, id!, "delivery.json"), "utf8")) : undefined;
   const branches = git(repo, "branch", "--list", "ticket/*");
-  return { repo, state: result.value, states, called, receipt, branches, worktree: join(String((input as any).worktreeRoot), "rig-bridge--rb-t") };
+  return { repo, state: result.value, states, called, receipt, delivery, asked: human.asked, branches, worktree: join(String((input as any).worktreeRoot), "rig-bridge--rb-t") };
 }
 
-const writeTest: Runner = request => { writeFileSync(join(request.cwd!, "tests/fixture-marker.test.ts"), markerTest); return { type: "completed", summary: "Wrote the marker test" }; };
+/** A trusted implementer writes the module and its test and reports what it decided by itself. */
 const implement = (value: string, extra?: (cwd: string) => void): Runner => request => {
   writeFileSync(join(request.cwd!, "src/fixture-marker.ts"), `export const marker = ${JSON.stringify(value)};\n`);
+  writeFileSync(join(request.cwd!, "tests/fixture-marker.test.ts"), markerTest);
   extra?.(request.cwd!);
-  return { type: "completed", summary: "Added the marker" };
+  return { type: "completed", summary: "Added the marker and its test", assumptions: [], scopeAdditions: [], openQuestions: [] };
 };
 
-test("ticket: red, green on every real gate, review, then one commit on a local ticket branch", { timeout: 600_000 }, async context => {
-  const run = await ticket(context, { tester: writeTest, implementer: implement("ready"), reviewer: () => approve });
+test("a ticket request passes the level, companions and forbidden paths; a careful tag selects careful", () => {
+  const mapped = ticketInput({ ticket: { id: "RB-1", title: "A", body } }) as any;
+  assert.equal(mapped.level, undefined, "no level leaves ticket-task's default, trusted");
+  assert.deepEqual(mapped.repository.companions, ["tests/**", "docs/**", "README.md"]);
+  assert.ok(mapped.repository.forbidden.includes("scripts/install-service.ts"));
+  assert.equal(mapped.repository.checks.find((gate: { name: string }) => gate.name === "tests").focused, true);
+  assert.equal(ticketInput({ ticket: { id: "RB-1", title: "A", body, metadata: { tags: ["careful"] } } }).level, "careful");
+  assert.equal(ticketInput({ ticket: { id: "RB-1", title: "A", body, metadata: { tags: ["careful"] } }, level: "trusted" }).level, "trusted");
+  assert.equal(ticketInput({ ticket: { id: "RB-1", title: "A", body }, continueImplementer: false }).continueImplementer, false);
+  for (const level of [undefined, "careful", "trusted", "auto"]) assert.doesNotThrow(() => ticketTask(runtime, ticketInput({ ticket: { id: "RB-1", title: "A", body }, level })), String(level));
+});
+
+test("ticket: one implementer, the layered gates and one review deliver one commit on a local ticket branch", { timeout: 600_000 }, async context => {
+  const run = await ticket(context, { tester: () => assert.fail("trusted has no tester"), implementer: implement("ready"), reviewer: () => approve });
   assert.equal(run.state, "delivered", JSON.stringify(run.receipt.reason));
-  assert.ok(run.states.includes("red") && run.states.includes("verify"));
-  assert.equal(run.receipt.checksPassed, true);
+  for (const state of ["implement", "gate", "review", "commit", "deliver"]) assert.ok(run.states.includes(state), state);
+  for (const state of ["falsify", "plan", "red", "stuck"]) assert.equal(run.states.includes(state), false, state);
+  // The tests gate ran only the test that names the changed module; smoke and tunnel fired because src/** changed.
+  const [round] = run.receipt.checkRounds;
+  assert.deepEqual(round.ran.find((check: { name: string }) => check.name === "tests").focused, ["tests/fixture-marker.test.ts"]);
+  assert.deepEqual(round.ran.map((check: { name: string }) => check.name), ["lint", "types", "tests", "smoke", "tunnel"]);
   assert.match(run.branches, /ticket\/rb-t-add-fixture-marker/u);
   assert.equal(git(run.repo, "log", "-1", "--format=%s%n%b", "ticket/rb-t-add-fixture-marker").trim(), "Add fixture marker\nTicket: RB-T");
   assert.equal(git(run.repo, "symbolic-ref", "--short", "HEAD"), "main");
   assert.equal(git(run.repo, "status", "--porcelain"), "");
+  assert.deepEqual(run.asked, []);
 });
 
-test("ticket: a failing gate parks the run with the candidate kept and nothing committed", { timeout: 600_000 }, async context => {
-  const run = await ticket(context, { tester: writeTest, implementer: implement("wrong"), reviewer: () => assert.fail("review must not run after a failed gate") });
-  assert.equal(run.state, "parked");
-  assert.equal(run.receipt.outcome, "blocked");
-  assert.notEqual(run.receipt.checksPassed, true);
+test("ticket: a gate still failing after the repairs asks the owner, and hand off keeps the candidate uncommitted", { timeout: 600_000 }, async context => {
+  const run = await ticket(context, { implementer: implement("wrong"), reviewer: () => assert.fail("review must not run after a failed gate") });
+  assert.equal(run.state, "handedOff");
+  assert.equal(run.asked.length, 1);
   assert.equal(run.called.includes("review"), false);
   assert.equal(readFileSync(join(run.worktree, "src/fixture-marker.ts"), "utf8").includes("wrong"), true);
   assert.equal(git(run.repo, "rev-list", "--count", "main..ticket/rb-t-add-fixture-marker"), "0");
 });
 
-test("ticket: an edit outside Scope parks before the gates", { timeout: 600_000 }, async context => {
+test("ticket: an edit outside Scope is delivered and listed as a scope addition", { timeout: 600_000 }, async context => {
   const run = await ticket(context, {
-    tester: writeTest,
-    implementer: implement("ready", cwd => writeFileSync(join(cwd, "README.md"), "changed\n")),
-    reviewer: () => assert.fail("review must not run after a scope violation"),
+    implementer: implement("ready", cwd => writeFileSync(join(cwd, "scripts/fixture-note.md"), "Why the marker exists.\n")),
+    reviewer: () => approve,
   });
-  assert.equal(run.state, "parked");
-  assert.match(JSON.stringify(run.receipt), /README\.md/u);
-  assert.equal(run.states.includes("verify"), false);
+  assert.equal(run.state, "delivered", JSON.stringify(run.receipt.reason));
+  assert.match(JSON.stringify(run.delivery?.scopeAdditions), /scripts\/fixture-note\.md/u);
+  assert.deepEqual(run.asked, []);
 });
 
-test("ticket: falsify questions park before any edit", { timeout: 600_000 }, async context => {
+test("ticket: an edit to a forbidden path stops before review and asks the owner", { timeout: 600_000 }, async context => {
+  const run = await ticket(context, {
+    implementer: implement("ready", cwd => writeFileSync(join(cwd, "scripts/install-service.ts"), "// changed\n")),
+    reviewer: () => assert.fail("review must not run after a forbidden path changed"),
+  });
+  assert.equal(run.state, "handedOff");
+  assert.equal(run.asked.length, 1);
+  assert.match(run.asked[0]!, /scripts\/install-service\.ts/u);
+  assert.equal(run.called.includes("review"), false);
+});
+
+test("ticket: a careful run's falsify questions ask the owner before any edit", { timeout: 600_000 }, async context => {
   const question = { text: "Should the marker be exported as default?", options: ["named", "default"], recommended: "named", assumable: false, why: "The ticket names neither" };
   const run = await ticket(context, {
     falsify: () => ({ type: "questions", summary: "One gap", questions: [question] }),
     tester: () => assert.fail("tester must not run"), implementer: () => assert.fail("implementer must not run"),
-  });
-  assert.equal(run.state, "parked");
-  assert.match(JSON.stringify(run.receipt), /exported as default/u);
+  }, { level: "careful" });
+  assert.equal(run.state, "handedOff");
+  assert.match(run.asked.join("\n"), /exported as default/u);
   assert.equal(existsSync(join(run.worktree, "tests/fixture-marker.test.ts")), false);
 });
